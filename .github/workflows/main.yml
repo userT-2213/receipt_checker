@@ -4,7 +4,7 @@ name: Run Python Script
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # これを入れておくと、ボタンをポチッと押して手動で実行できるようになります
+  workflow_dispatch: 
 
 jobs:
   run-script:
@@ -24,4 +24,4 @@ jobs:
     # 3. 実際にPythonファイルを動かす
     - name: Run Python script
       run: |
-        python あなたのファイル名.py
+        python 問題.py
