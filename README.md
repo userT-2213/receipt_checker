@@ -97,3 +97,70 @@ flowchart LR
     classDef uc fill:#fff,stroke:#333,stroke-width:1px;
     class UC1,UC2,UC3,UC4,UC2_1,UC_CSV_W,UC_CSV_R uc;
 
+```
+
+### クラス図
+
+```mermaid
+classDiagram
+
+class AppUI {
+    +run()
+    -renderInputForm()
+    -renderDashboard()
+}
+
+class ExpenseController {
+    +addExpense()
+    +getAggregatedData()
+}
+
+class ReceiptProcessor {
+    -openCVHandler
+    -ocrEngine
+    +extractExpenseFromImage()
+}
+
+class OpenCVHandler {
+    +preprocessImage()
+}
+
+class OCREngine {
+    +imageToText()
+    +parseTextToDraft()
+}
+
+class ExpenseDraft {
+    +date
+    +store
+    +item
+    +amount
+    +category
+}
+
+class ExpenseModel {
+    +date
+    +store
+    +item
+    +amount
+    +category
+}
+
+class CSVDataManager {
+    -filePath
+    +save()
+    +loadAll()
+}
+
+AppUI --> ExpenseController : uses
+AppUI --> ReceiptProcessor : uses
+
+ExpenseController --> CSVDataManager : manages
+ExpenseController --> ExpenseModel : manages
+
+ReceiptProcessor *-- OpenCVHandler
+ReceiptProcessor *-- OCREngine
+
+ReceiptProcessor ..> ExpenseDraft : creates
+CSVDataManager ..> ExpenseModel : stores
+```
