@@ -104,63 +104,168 @@ flowchart LR
 ```mermaid
 classDiagram
 
-class AppUI {
-    +run()
-    -renderInputForm()
-    -renderDashboard()
+class アプリ画面 {
+    +アプリ起動()
+    -入力フォーム表示()
+    -ダッシュボード表示()
 }
 
-class ExpenseController {
-    +addExpense()
-    +getAggregatedData()
+class 支出管理 {
+    +支出登録()
+    +集計データ取得()
 }
 
-class ReceiptProcessor {
-    -openCVHandler
-    -ocrEngine
-    +extractExpenseFromImage()
+class レシート解析 {
+    -画像前処理
+    -OCR処理
+    +レシート解析()
 }
 
-class OpenCVHandler {
-    +preprocessImage()
+class 画像前処理 {
+    +画像補正()
 }
 
-class OCREngine {
-    +imageToText()
-    +parseTextToDraft()
+class OCR処理 {
+    +文字認識()
+    +解析結果生成()
 }
 
-class ExpenseDraft {
-    +date
-    +store
-    +item
-    +amount
-    +category
+class 支出下書き {
+    +日付
+    +店舗名
+    +品名
+    +金額
+    +カテゴリ
 }
 
-class ExpenseModel {
-    +date
-    +store
-    +item
-    +amount
-    +category
+class 支出データ {
+    +日付
+    +店舗名
+    +品名
+    +金額
+    +カテゴリ
 }
 
-class CSVDataManager {
-    -filePath
-    +save()
-    +loadAll()
+class CSV管理 {
+    -ファイルパス
+    +保存()
+    +全件読込()
 }
 
-AppUI --> ExpenseController : uses
-AppUI --> ReceiptProcessor : uses
+アプリ画面 --> 支出管理 : 支出登録・集計を依頼
+アプリ画面 --> レシート解析 : レシート解析を依頼
 
-ExpenseController --> CSVDataManager : manages
-ExpenseController --> ExpenseModel : manages
+支出管理 --> CSV管理 : 保存・読込
+支出管理 --> 支出データ : 管理
 
-ReceiptProcessor *-- OpenCVHandler
-ReceiptProcessor *-- OCREngine
+レシート解析 *-- 画像前処理
+レシート解析 *-- OCR処理
 
-ReceiptProcessor ..> ExpenseDraft : creates
-CSVDataManager ..> ExpenseModel : stores
+レシート解析 ..> 支出下書き : 下書きを生成
+CSV管理 ..> 支出データ : 保存・読込
+```
+
+### シーケンス図
+
+```mermaid
+sequenceDiagram
+    autonumber
+
+    actor 利用者 as ユーザー
+    participant 画面 as アプリ画面
+    participant 支出管理 as 支出管理
+    participant レシート解析 as レシート解析
+    participant CSV管理 as CSV管理
+
+    %% 1. レシートのアップロードと解析
+    利用者 ->> 画面: レシート画像をアップロード
+    activate 画面
+
+    画面 ->> レシート解析: レシート解析を実行
+    activate レシート解析
+
+    Note over レシート解析: 画像前処理(OpenCV)<br/>OCRによる文字認識<br/>支出データの下書きを生成
+
+    レシート解析 -->> 画面: 支出下書きを返す
+    deactivate レシート解析
+
+    画面 -->> 利用者: 入力フォームへ解析結果を表示
+    deactivate 画面
+
+    %% 2. ユーザーによる確認・修正
+    alt 修正が必要な場合
+        利用者 ->> 画面: 店舗名・金額・品名などを修正
+        activate 画面
+        画面 -->> 利用者: 修正内容を反映
+        deactivate 画面
+    else 修正不要の場合
+        Note over 利用者: そのまま次へ進む
+    end
+
+    %% 3. 登録
+    利用者 ->> 画面: カテゴリを選択して登録
+    activate 画面
+
+    画面 ->> 支出管理: 支出を登録
+    activate 支出管理
+
+    支出管理 ->> CSV管理: 支出データを保存
+    activate CSV管理
+
+    Note over CSV管理: CSVファイルへ追記保存
+
+    CSV管理 -->> 支出管理: 保存成功
+    deactivate CSV管理
+
+    支出管理 -->> 画面: 登録完了
+    deactivate 支出管理
+
+    画面 -->> 利用者: 「登録が完了しました」と表示
+    deactivate 画面
+```
+
+### 状態遷移図
+```mermaid
+stateDiagram-v2
+    title 支出登録データの状態遷移
+
+    %% 初期状態
+    [*] --> 入力開始 : 新規入力または画像読込
+
+    %% 入力開始
+    state 入力開始 {
+        [*] --> 空の入力
+        [*] --> レシート解析中
+
+        空の入力 --> 手動入力中 : ユーザーが入力
+        レシート解析中 --> 解析完了 : 画像前処理・OCR完了
+    }
+
+    %% 下書き状態へ
+    入力開始 --> 下書き状態 : 入力フォームを表示
+
+    %% 下書き状態
+    state 下書き状態 {
+        [*] --> 確認待ち
+
+        確認待ち --> 修正中 : 誤入力・誤認識を修正
+        修正中 --> 確認待ち : 修正完了
+    }
+
+    %% 確定・破棄
+    下書き状態 --> 確定状態 : 「登録」を押す
+    下書き状態 --> 破棄状態 : 「キャンセル」または画像を変更
+
+    %% 保存
+    確定状態 --> 保存完了 : CSVへ保存
+
+    state 保存完了 {
+        [*] --> 保存済み
+        保存済み --> 削除済み : 履歴から削除
+    }
+
+    %% 終了
+    破棄状態 --> [*]
+    保存完了 --> [*] : 次の入力または終了
+    削除済み --> [*]
 ```
