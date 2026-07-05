@@ -97,9 +97,7 @@ flowchart LR
     classDef uc fill:#fff,stroke:#333,stroke-width:1px;
     class UC1,UC2,UC3,UC4,UC2_1,UC_CSV_W,UC_CSV_R uc;
 
-### クラス図
-```mermaid
-classDiagram
+    classDiagram
     %% クラスの定義
     class AppUI {
         +run() void
