@@ -22,7 +22,7 @@ class SmartReceiptCheckerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'スマート・レシート・チェッカー',
+      title: 'レシートチェック＆支出管理アプリ',
       theme: ThemeData(
         primarySwatch: Colors.teal,
         scaffoldBackgroundColor: const Color(0xFFF0F2F6),
