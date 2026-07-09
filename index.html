@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>スマート・レシート・チェッカー</title>
+    <!-- Plotly.js (グラフ用) -->
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <!-- Tesseract.js (ブラウザ側OCR用) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- OpenCV.js (画像二値化処理用) -->
+    <script async src="https://docs.opencv.org/4.5.4/opencv.js" id="opencv-js"></script>
+    
+    <style>
+        :root {
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-color: #31333F;
+            --primary-color: #ff4b4b;
+            --border-color: #ddd;
+        }
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 2.2rem;
+            margin-bottom: 5px;
+        }
+        hr {
+            border: 0;
+            height: 1px;
+            background: var(--border-color);
+            margin: 20px 0;
+        }
+        /* タブシステム */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+        .tab-btn {
+            padding: 10px 20px;
+            font-size: 1rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+            color: #666;
+            font-weight: bold;
+            border-bottom: 3px solid transparent;
+        }
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        /* レイアウトGrid */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        h2, h3 {
+            margin-top: 0;
+        }
+        /* フォーム要素 */
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 1rem;
+        }
+        textarea { height: 80px; resize: vertical; }
+        .btn {
+            background-color: #fff;
+            color: #333;
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+        }
+        .btn-danger {
+            background-color: #ef553b;
+            color: white;
+            border: none;
+        }
+        /* プレビュー画像 & キャンバス余白のバグ修正 */
+        .img-preview, canvas {
+            max-width: 100%;
+            max-height: 400px;
+            display: block;
+            margin: 10px auto;
+        }
+        /* メトリクス表示 */
+        .metrics-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: #fff;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+        .metric-label { font-size: 0.85rem; color: #666; font-weight: bold; }
+        .metric-value { font-size: 1.5rem; font-weight: bold; margin-top: 5px; }
+        
+        /* カレンダーCSSスタイル */
+        .cal-table { width: 100%; border-collapse: collapse; font-family: sans-serif; table-layout: fixed; }
+        .cal-th { text-align: center; padding: 6px; background-color: #f0f2f6; font-size: 13px; color: #31333F; font-weight: bold; border: 1px solid #ddd; }
+        .cal-td { vertical-align: top; height: 75px; padding: 4px; border: 1px solid #ddd; background-color: #ffffff; position: relative; }
+        .cal-daynum { font-size: 12px; font-weight: bold; color: #555; }
+        .cal-empty { background-color: #fafafa; border: 1px solid #ddd; }
+        .expense-container { margin-top: 3px; font-size: 10px; line-height: 1.2; overflow: hidden; max-height: 52px; }
+        .expense-item { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; margin-bottom: 1px; font-weight: bold; color: #333; }
+        .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
+        .highlight-week { background-color: #CCFFCC !important; }
+        
+        /* テーブルスタイル */
+        table.data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        table.data-table th, table.data-table td {
+            border: 1px solid var(--border-color);
+            padding: 8px;
+            text-align: left;
+        }
+        table.data-table th { background-color: #f0f2f6; }
+        
+        /* ローディングインジケータ */
+        .spinner {
+            display: none;
+            color: var(--primary-color);
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .flex-row { display: flex; gap: 10px; align-items: center; }
+        .flex-end { justify-content: flex-end; }
+        .hidden { display: none !important; }
+        .alert-info { background-color: #e1f5fe; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .alert-warning { background-color: #fff3e0; padding: 10px; border-radius: 4px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>支出管理アプリ（スマート・レシート・チェッカー）</h1>
+    <hr>
+
+    <!-- タブ切り替え構造 -->
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('input-tab')">📥 レシート登録・入力</button>
+        <button class="tab-btn" onclick="switchTab('dashboard-tab')">📊 支出集計ダッシュボード</button>
+    </div>
+
+    <!-- タブ1: レシート登録・入力 -->
+    <div id="input-tab" class="tab-content active">
+        <div class="card" style="margin-bottom: 20px;">
+            <h2>1. レシート画像のアップロード</h2>
+            <input type="file" id="file-uploader" accept="image/*" onchange="processReceipt(this)">
+            <div id="loading-spinner" class="spinner">⏳ OpenCV前処理 ＆ AI文字解析を実行中...</div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <h3>元のアップロード画像</h3>
+                <img id="src-image" class="img-preview" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'></svg>">
+            </div>
+            <div class="card">
+                <h3>OpenCV二値化後の画像</h3>
+                <canvas id="canvas-output"></canvas>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 20px;">
+            <h2>2. 支出情報の入力・確認</h2>
+            <form id="expense-form" onsubmit="saveExpense(event)">
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>日付</label>
+                        <input type="date" id="form-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label>店名</label>
+                        <input type="text" id="form-store">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>商品名（改行可）</label>
+                    <textarea id="form-item"></textarea>
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>金額 (円)</label>
+                        <input type="number" id="form-amount" min="0" value="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label>カテゴリ</label>
+                        <select id="form-category"></select>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">データを保存する</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="flex-row" style="justify-content: space-between; align-items: center;">
+                <h2>3. 登録データ履歴</h2>
+                <div class="flex-row flex-end">
+                    <select id="sort-target" onchange="renderHistoryTable()" style="width: 120px;">
+                        <option value="新しい順">新しい順</option>
+                        <option value="金額順">金額順</option>
+                        <option value="日付順">日付順</option>
+                    </select>
+                    <select id="sort-order" onchange="renderHistoryTable()" style="width: 80px;">
+                        <option value="降順">降順</option>
+                        <option value="昇順">昇順</option>
+                    </select>
+                    <button id="btn-del-start" class="btn btn-danger" onclick="toggleDeleteMode(true)">🗑 データを削除する</button>
+                    <div id="delete-actions" class="flex-row hidden">
+                        <button class="btn btn-danger" onclick="executeDelete()">🔴 削除</button>
+                        <button class="btn" onclick="toggleDeleteMode(false)">❌ 戻る</button>
+                    </div>
+                </div>
+            </div>
+            <div id="delete-warning" class="alert-warning hidden">⚠️ 削除したい項目にチェックを入れ、右上の「🔴 削除」ボタンを押してください。</div>
+            <div id="history-container"></div>
+        </div>
+    </div>
+
+    <!-- タブ2: 支出集計ダッシュボード -->
+    <div id="dashboard-tab" class="tab-content">
+        <div class="card" style="margin-bottom: 20px;">
+            <h2>📊 期間別集計・可視化</h2>
+            <div class="grid-2" style="grid-template-columns: 2fr 1fr 1fr 1fr; align-items: center;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>表示範囲を選択してください:</label>
+                    <div class="flex-row">
+                        <input type="radio" name="scope" id="scope-week" value="週単位" checked onchange="changeScope('週単位')"> <label for="scope-week" style="display:inline; margin:0 15px 0 0;">週単位</label>
+                        <input type="radio" name="scope" id="scope-month" value="月単位" onchange="changeScope('月単位')"> <label for="scope-month" style="display:inline; margin:0 15px 0 0;">月単位</label>
+                        <input type="radio" name="scope" id="scope-year" value="年単位" onchange="changeScope('年単位')"> <label for="scope-year" style="display:inline; margin:0;">年単位</label>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>年</label>
+                    <select id="dash-year" onchange="updateDashboard()"></select>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>月</label>
+                    <select id="dash-month" onchange="updateDashboard()"></select>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>週</label>
+                    <select id="dash-week" onchange="updateDashboard()"></select>
+                </div>
+            </div>
+        </div>
+
+        <div class="metrics-container">
+            <div class="metric-card">
+                <div class="metric-label">📊 累計総支出額</div>
+                <div class="metric-value" id="metric-total-all">0 円</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label" id="label-period-total">🧮 支出額</div>
+                <div class="metric-value" id="metric-period-total">0 円</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label" id="label-period-avg">📐 1日平均</div>
+                <div class="metric-value" id="metric-period-avg">0 円</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label" id="label-latest-period">📅 直近データ</div>
+                <div class="metric-value" id="metric-latest-amount">0 円</div>
+            </div>
+        </div>
+        <hr>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="flex-row" style="justify-content: space-between; margin-bottom:10px;">
+                    <h3 style="margin:0;">📅 日付別の支出カレンダー</h3>
+                    <div class="flex-row">
+                        <button class="btn" onclick="navigateCalendar(-1)">◀</button>
+                        <select id="cal-year" onchange="syncCalendarSelect()" style="width:90px; padding:3px;"></select>
+                        <select id="cal-month" onchange="syncCalendarSelect()" style="width:70px; padding:3px;"></select>
+                        <button class="btn" onclick="navigateCalendar(1)">▶</button>
+                    </div>
+                </div>
+                <div id="calendar-container"></div>
+            </div>
+            <div class="card">
+                <h3 style="margin:0;">🍕 カテゴリ割合</h3>
+                <div class="flex-row" style="margin: 10px 0;">
+                    <span style="font-weight:bold; font-size:0.9rem;">表示範囲:</span>
+                    <input type="radio" name="pie-scope" id="pie-m" value="月単位" checked onchange="changePieScope('月単位')"> <label for="pie-m" style="display:inline; margin:0 10px 0 0;">月単位</label>
+                    <input type="radio" name="pie-scope" id="pie-y" value="年単位" onchange="changePieScope('年単位')"> <label for="pie-y" style="display:inline; margin:0 10px 0 0;">年単位</label>
+                    <input type="radio" name="pie-scope" id="pie-all" value="全期間" onchange="changePieScope('全期間')"> <label for="pie-all" style="display:inline; margin:0;">全期間</label>
+                    <select id="pie-year" onchange="updateDashboard()" style="width:85px; padding:3px; margin-left:10px;"></select>
+                    <select id="pie-month" onchange="updateDashboard()" style="width:65px; padding:3px; margin-left:5px;"></select>
+                </div>
+                <div id="pie-chart-div"></div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:20px;">
+            <details>
+                <summary style="font-weight:bold; cursor:pointer; font-size:1.1rem;">📊 期間別集計の数値データ一覧を表示</summary>
+                <div id="summary-table-container" style="margin-top:15px;"></div>
+            </details>
+        </div>
+    </div>
+</div>
+
+<script>
+    const categories = ["食費", "趣味", "交通費", "日用品", "教育", "水道・光熱費", "家賃", "保険", "通信費", "美容・衣服", "医療・健康", "その他"];
+    const categoryColorMap = {
+        "食費": "#FFA6A6", "趣味": "#FFCFA6", "交通費": "#FFFF00", "日用品": "#A6FFA6", 
+        "教育": "#B3F0FF", "水道・光熱費": "#A6C8FF", "家賃": "#D9B3FF", "保険": "#FFCCE6", 
+        "通信費": "#FFA6FF", "美容・衣服": "#7CA48D", "医療・健康": "#D3D3D3", "その他": "#85DFB3"
+    };
+    const fallbackColor = "#A1E7D1";
+
+    let state = {
+        syncYear: new Date().getFullYear(),
+        syncMonth: new Date().getMonth() + 1,
+        syncWeek: getWeekNumber(new Date()),
+        syncScope: "週単位",
+        pieScopeSelection: "月単位",
+        deleteMode: false
+    };
+
+    window.addEventListener('DOMContentLoaded', () => {
+        setupFormOptions();
+        setupDropdownOptions();
+        resetFormToToday();
+        updateDashboard();
+        renderHistoryTable();
+    });
+
+    function setupFormOptions() {
+        const catSelect = document.getElementById('form-category');
+        categories.forEach(c => {
+            let opt = document.createElement('option');
+            opt.value = c; opt.textContent = c;
+            catSelect.appendChild(opt);
+        });
+    }
+
+    function setupDropdownOptions() {
+        const currentYear = new Date().getFullYear();
+        const yearSelectors = ['dash-year', 'cal-year', 'pie-year'];
+        const monthSelectors = ['dash-month', 'cal-month', 'pie-month'];
+        const weekSelectors = ['dash-week'];
+
+        yearSelectors.forEach(id => {
+            const el = document.getElementById(id);
+            el.innerHTML = '';
+            for(let y = currentYear - 5; y <= currentYear + 5; y++) {
+                let o = document.createElement('option'); o.value = y; o.textContent = y + "年";
+                if(y === state.syncYear) o.selected = true;
+                el.appendChild(o);
+            }
+        });
+
+        monthSelectors.forEach(id => {
+            const el = document.getElementById(id);
+            el.innerHTML = '';
+            for(let m = 1; m <= 12; m++) {
+                let o = document.createElement('option'); o.value = m; o.textContent = m + "月";
+                if(m === state.syncMonth) o.selected = true;
+                el.appendChild(o);
+            }
+        });
+
+        weekSelectors.forEach(id => {
+            const el = document.getElementById(id);
+            el.innerHTML = '';
+            for(let w = 1; w <= 5; w++) {
+                let o = document.createElement('option'); o.value = w; o.textContent = "第" + w + "週";
+                if(w === state.syncWeek) o.selected = true;
+                el.appendChild(o);
+            }
+        });
+    }
+
+    function resetFormToToday() {
+        document.getElementById('form-date').valueAsDate = new Date();
+        document.getElementById('form-store').value = '';
+        document.getElementById('form-item').value = '';
+        document.getElementById('form-amount').value = 0;
+        document.getElementById('form-category').selectedIndex = 0;
+    }
+
+    function getExpenses() {
+        return JSON.parse(localStorage.getItem('expenses')) || [];
+    }
+
+    function saveExpensesRaw(arr) {
+        localStorage.setItem('expenses', JSON.stringify(arr));
+    }
+
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        
+        if(tabId === 'input-tab') document.querySelectorAll('.tab-btn')[0].classList.add('active');
+        if(tabId === 'dashboard-tab') {
+            document.querySelectorAll('.tab-btn')[1].classList.add('active');
+            updateDashboard();
+        }
+        document.getElementById(tabId).classList.add('active');
+    }
+
+    function getWeekNumber(date) {
+        let day = date.getDate();
+        if (day <= 7) return 1;
+        if (day <= 14) return 2;
+        if (day <= 21) return 3;
+        if (day <= 28) return 4;
+        return 5;
+    }
+
+    // --- OpenCV二値化 & 安全ロード・判定ロジック ---
+    function processReceipt(input) {
+        if (!input.files || !input.files[0]) return;
+        const file = input.files[0];
+        const reader = new FileReader();
+        const spinner = document.getElementById('loading-spinner');
+        spinner.style.display = 'block';
+
+        reader.onload = function(e) {
+            const imgEl = document.getElementById('src-image');
+            imgEl.src = e.target.result;
+            imgEl.onload = function() {
+                // OpenCVのロード確認
+                if (typeof cv !== 'undefined' && cv.Mat) {
+                    try {
+                        let src = cv.imread(imgEl);
+                        let dst = new cv.Mat();
+                        cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
+                        let dsize = new cv.Size(src.cols * 2, src.rows * 2);
+                        cv.resize(src, src, dsize, 0, 0, cv.INTER_CUBIC);
+                        cv.adaptiveThreshold(src, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 15, 3);
+                        cv.imshow('canvas-output', dst);
+                        src.delete(); dst.delete();
+                    } catch(err) {
+                        console.error("OpenCV Processing Error: ", err);
+                    }
+                } else {
+                    console.log("OpenCV.js is initializing... waiting 1 second.");
+                    setTimeout(() => { imgEl.onload(); }, 1000);
+                    return;
+                }
+
+                // OCR文字認識の実行
+                Tesseract.recognize(imgEl.src, 'jpn+eng')
+                .then(({ data: { text } }) => {
+                    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                    parseOcrResults(lines);
+                })
+                .finally(() => {
+                    spinner.style.display = 'none';
+                });
+            }
+        }
+        reader.readAsDataURL(file);
+    }
+
+    function parseOcrResults(results) {
+        let detectedDate = new Date().toISOString().substring(0, 10);
+        let detectedShop = "";
+        let detectedPrice = 0;
+        let detectedItems = [];
+        let baseShopName = "";
+        let branchName = "";
+
+        const firstLines = results.slice(0, 7);
+        for(let i = 0; i < firstLines.length; i++) {
+            let txt = firstLines[i].trim();
+            if(txt.length <= 1) continue;
+            if(/\d{4}[年\-/]|\d{1,2}[月\-/]/.test(txt)) continue;
+            if(/TEL|tel|0\d{1,4}-\d{1,4}-\d{3,4}/.test(txt)) continue;
+            if(/領収|レシート|登録|番号/.test(txt)) continue;
+            if(/[xXメ*✕]\s*\d+|\d+円|￥/.test(txt)) continue;
+
+            txt = txt.replace("ナインイレナン", "ナインイレブン").replace("ナインイレプン", "ナインイレブン");
+            baseShopName = txt;
+
+            if(txt.includes("店") && txt.length > 3) {
+                break;
+            } else if(i + 1 < results.slice(0, 8).length) {
+                let nextTxt = results[i+1].trim();
+                if(nextTxt.includes("店") && !(/\d+円|TEL/.test(nextTxt))) {
+                    branchName = nextTxt;
+                }
+                break;
+            }
+        }
+        if(baseShopName) {
+            detectedShop = (branchName && !baseShopName.includes(branchName)) ? `${baseShopName} ${branchName}` : baseShopName;
+        }
+
+        results.forEach((text) => {
+            text = text.replace("ナインイレナン", "ナインイレブン").replace("ナインイレプン", "ナインイレブン");
+            
+            let itemMatch = text.match(/(.+?)\s*[xXメ*✕]\s*\d+/);
+            if(itemMatch) {
+                let prod = itemMatch[1].trim();
+                if(!["責", "：", ":"].some(noise => prod.includes(noise))) {
+                    if(/[^\d\W]/.test(prod)) {
+                        detectedItems.push(prod);
+                    }
+                }
+            }
+
+            let dateMatch = text.match(/(\d{4})\s*[年\-/]\s*(\d{1,2})\s*[月\-/]\s*(\d{1,2})/);
+            if(dateMatch) {
+                let y = parseInt(dateMatch[1]);
+                let m = String(parseInt(dateMatch[2])).padStart(2, '0');
+                let d = String(parseInt(dateMatch[3])).padStart(2, '0');
+                detectedDate = `${y}-${m}-${d}`;
+            }
+
+            if(text.includes("計")) {
+                let nums = text.match(/\d+/g);
+                if(nums) {
+                    detectedPrice = parseInt(nums[nums.length - 1]);
+                }
+            }
+        });
+
+        if(detectedPrice === 0) {
+            for(let text of results) {
+                let cleanText = text.replace(/[^\d]/g, '');
+                if(/^\d+$/.test(cleanText) && cleanText.length >= 2 && cleanText.length <= 6) {
+                    detectedPrice = parseInt(cleanText);
+                    break;
+                }
+            }
+        }
+
+        if(!detectedShop && results.length > 0) detectedShop = results[0];
+
+        document.getElementById('form-date').value = detectedDate;
+        document.getElementById('form-store').value = detectedShop;
+        document.getElementById('form-item').value = detectedItems.join('\n');
+        document.getElementById('form-amount').value = detectedPrice;
+        document.getElementById('form-category').value = "食費";
+    }
+
+    function saveExpense(e) {
+        e.preventDefault();
+        const date = document.getElementById('form-date').value;
+        const store = document.getElementById('form-store').value;
+        const item = document.getElementById('form-item').value;
+        const amount = parseInt(document.getElementById('form-amount').value);
+        const category = document.getElementById('form-category').value;
+
+        if(!store.trim() || !item.trim() || amount <= 0) {
+            alert("入力内容に不備があります。");
+            return;
+        }
+
+        let expenses = getExpenses();
+        expenses.push({ date, store, item, amount, category, timestamp: Date.now() });
+        saveExpensesRaw(expenses);
+
+        alert("データを保存しました！");
+        resetFormToToday();
+        renderHistoryTable();
+    }
+
+    function toggleDeleteMode(mode) {
+        state.deleteMode = mode;
+        if(mode) {
+            document.getElementById('btn-del-start').classList.add('hidden');
+            document.getElementById('delete-actions').classList.remove('hidden');
+            document.getElementById('delete-warning').classList.remove('hidden');
+        } else {
+            document.getElementById('btn-del-start').classList.remove('hidden');
+            document.getElementById('delete-actions').classList.add('hidden');
+            document.getElementById('delete-warning').classList.add('hidden');
+        }
+        renderHistoryTable();
+    }
+
+    function renderHistoryTable() {
+        let expenses = getExpenses().map((e, idx) => ({ ...e, originalIndex: idx }));
+        const target = document.getElementById('sort-target').value;
+        const order = document.getElementById('sort-order').value;
+        const container = document.getElementById('history-container');
+
+        if(expenses.length === 0) {
+            container.innerHTML = `<div class="alert-info">データがありません。</div>`;
+            return;
+        }
+
+        expenses.sort((a, b) => {
+            let valA, valB;
+            if(target === "新しい順") { valA = a.timestamp; valB = b.timestamp; }
+            else if(target === "金額順") { valA = a.amount; valB = b.amount; }
+            else if(target === "日付順") { valA = new Date(a.date).getTime(); valB = new Date(b.date).getTime(); }
+
+            if(order === "降順") return valB - valA;
+            return valA - valB;
+        });
+
+        let html = `<table class="data-table"><thead><tr>`;
+        if(state.deleteMode) html += `<th>選択</th>`;
+        html += `<th>日付</th><th>店名</th><th>商品名</th><th>金額</th><th>カテゴリ</th></tr></thead><tbody>`;
+
+        expenses.forEach(e => {
+            html += `<tr>`;
+            if(state.deleteMode) html += `<td><input type="checkbox" class="del-chk" data-idx="${e.originalIndex}"></td>`;
+            html += `<td>${e.date}</td><td>${storeEscape(e.store)}</td><td>${storeEscape(e.item).replace(/\n/g, '<br>')}</td><td>${e.amount.toLocaleString()} 円</td><td>${e.category}</td></tr>`;
+        });
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+    }
+
+    function storeEscape(str) {
+        if(!str) return "";
+        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function executeDelete() {
+        const checkboxes = document.querySelectorAll('.del-chk:checked');
+        if(checkboxes.length === 0) {
+            alert("削除する項目が選択されていません。");
+            return;
+        }
+        let indicesToDelete = Array.from(checkboxes).map(c => parseInt(c.getAttribute('data-idx')));
+        let expenses = getExpenses();
+        expenses = expenses.filter((_, idx) => !indicesToDelete.includes(idx));
+        saveExpensesRaw(expenses);
+
+        alert(`${checkboxes.length}件のデータを削除しました。`);
+        toggleDeleteMode(false);
+        renderHistoryTable();
+    }
+
+    function changeScope(sc) {
+        state.syncScope = sc;
+        if(sc === "週単位" || sc === "月単位") {
+            state.pieScopeSelection = "月単位";
+            document.getElementById('pie-m').checked = true;
+        } else {
+            state.pieScopeSelection = "年単位";
+            document.getElementById('pie-y').checked = true;
+        }
+        syncSelectorsState();
+        updateDashboard();
+    }
+
+    function changePieScope(sc) {
+        state.pieScopeSelection = sc;
+        if(sc === "年単位") changeScope("年単位");
+        else if(sc === "月単位") changeScope("月単位");
+        else updateDashboard();
+    }
+
+    function syncSelectorsState() {
+        document.getElementById('dash-month').disabled = (state.syncScope === "年単位");
+        document.getElementById('dash-week').disabled = (state.syncScope === "月単位" || state.syncScope === "年単位");
+        document.getElementById('pie-year').disabled = (state.pieScopeSelection === "全期間");
+        document.getElementById('pie-month').disabled = (state.pieScopeSelection === "年単位" || state.pieScopeSelection === "全期間");
+    }
+
+    function updateDashboard() {
+        if(document.activeElement && document.activeElement.id) {
+            const activeId = document.activeElement.id;
+            if(['dash-year', 'cal-year', 'pie-year'].includes(activeId)) {
+                state.syncYear = parseInt(document.getElementById(activeId).value);
+            }
+            if(['dash-month', 'cal-month', 'pie-month'].includes(activeId)) {
+                state.syncMonth = parseInt(document.getElementById(activeId).value);
+            }
+            if(activeId === 'dash-week') state.syncWeek = parseInt(document.getElementById(activeId).value);
+        }
+        setupDropdownOptions();
+        syncSelectorsState();
+
+        const expenses = getExpenses();
+        let totalAll = expenses.reduce((sum, e) => sum + e.amount, 0);
+        document.getElementById('metric-total-all').textContent = `${totalAll.toLocaleString()} 円`;
+
+        let filtered = expenses.filter(e => {
+            let d = new Date(e.date);
+            if(d.getFullYear() !== state.syncYear) return false;
+            if(state.syncScope !== "年単位" && (d.getMonth() + 1) !== state.syncMonth) return false;
+            if(state.syncScope === "週単位" && getWeekNumber(d) !== state.syncWeek) return false;
+            return true;
+        });
+
+        let periodTotal = filtered.reduce((sum, e) => sum + e.amount, 0);
+        let periodText = "";
+        let daysInPeriod = 30;
+
+        if(state.syncScope === "週単位") {
+            periodText = `${state.syncYear}年${state.syncMonth}月 第${state.syncWeek}週`;
+            daysInPeriod = 7;
+        } else if(state.syncScope === "月単位") {
+            periodText = `${state.syncYear}年${state.syncMonth}月`;
+            daysInPeriod = new Date(state.syncYear, state.syncMonth, 0).getDate();
+        } else {
+            periodText = `${state.syncYear}年`;
+            daysInPeriod = (state.syncYear % 4 === 0 && (state.syncYear % 100 !== 0 || state.syncYear % 400 === 0)) ? 366 : 365;
+        }
+
+        document.getElementById('label-period-total').textContent = `🧮 ${periodText} の支出額`;
+        document.getElementById('metric-period-total').textContent = `${periodTotal.toLocaleString()} 円`;
+
+        let avg = daysInPeriod > 0 ? Math.round(periodTotal / daysInPeriod) : 0;
+        document.getElementById('label-period-avg').textContent = `📐 ${periodText} の1日平均`;
+        document.getElementById('metric-period-avg').textContent = `${avg.toLocaleString()} 円`;
+
+        let sortedExpenses = [...expenses].sort((a,b) => new Date(a.date) - new Date(b.date));
+        if(sortedExpenses.length > 0) {
+            let latest = sortedExpenses[sortedExpenses.length - 1];
+            let latestDate = new Date(latest.date);
+            let latestKey = "";
+            if(state.syncScope === "週単位") latestKey = `${latestDate.getFullYear()}年${latestDate.getMonth()+1}月 第${getWeekNumber(latestDate)}週`;
+            else if(state.syncScope === "月単位") latestKey = `${latestDate.getFullYear()}-${String(latestDate.getMonth()+1).padStart(2,'0')}`;
+            else latestKey = `${latestDate.getFullYear()}`;
+
+            let latestGroupAmt = expenses.filter(e => {
+                let d = new Date(e.date);
+                if(state.syncScope === "週単位") return `${d.getFullYear()}年${d.getMonth()+1}月 第${getWeekNumber(d)}週` === latestKey;
+                if(state.syncScope === "月単位") return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === latestKey;
+                return `${d.getFullYear()}` === latestKey;
+            }).reduce((sum, e) => sum + e.amount, 0);
+
+            document.getElementById('label-latest-period').textContent = `📅 直近データ (${latestKey})`;
+            document.getElementById('metric-latest-amount').textContent = `${latestGroupAmt.toLocaleString()} 円`;
+        }
+
+        renderCalendar();
+        renderPieChart();
+        renderSummaryTable();
+    }
+
+    function navigateCalendar(offset) {
+        let m = state.syncMonth + offset;
+        let y = state.syncYear;
+        if(m > 12) { m = 1; y += 1; }
+        if(m < 1) { m = 12; y -= 1; }
+        state.syncMonth = m;
+        state.syncYear = y;
+        updateDashboard();
+    }
+    
+    function syncCalendarSelect() {
+        state.syncYear = parseInt(document.getElementById('cal-year').value);
+        state.syncMonth = parseInt(document.getElementById('cal-month').value);
+        updateDashboard();
+    }
+
+    function renderCalendar() {
+        const container = document.getElementById('calendar-container');
+        const firstDay = new Date(state.syncYear, state.syncMonth - 1, 1);
+        const lastDay = new Date(state.syncYear, state.syncMonth, 0);
+        
+        let startDayOfWeek = firstDay.getDay();
+        let totalDays = lastDay.getDate();
+
+        let expenses = getExpenses().filter(e => {
+            let d = new Date(e.date);
+            return d.getFullYear() === state.syncYear && (d.getMonth() + 1) === state.syncMonth;
+        });
+
+        let html = `<table class="cal-table"><thead><tr><th class="cal-th" style="color: #ef553b;">日</th><th class="cal-th">月</th><th class="cal-th">火</th><th class="cal-th">水</th><th class="cal-th">木</th><th class="cal-th">金</th><th class="cal-th" style="color: #636efa;">土</th></tr></thead><tbody><tr>`;
+
+        let dayCounter = 1;
+        for(let i = 0; i < startDayOfWeek; i++) {
+            html += `<td class="cal-td cal-empty"></td>`;
+        }
+
+        let currentWeekIdx = 1;
+        for(let i = startDayOfWeek; i < 42; i++) {
+            if(i % 7 === 0 && dayCounter > totalDays) break;
+            if(i % 7 === 0 && i > 0) {
+                let isWeekSelected = (state.syncScope === "週単位" && state.syncWeek === currentWeekIdx);
+                html += `</tr><tr${isWeekSelected ? ' class="highlight-week"' : ''}>`;
+                currentWeekIdx++;
+            }
+
+            if(dayCounter <= totalDays) {
+                let dayExpenses = expenses.filter(e => new Date(e.date).getDate() === dayCounter);
+                let catSums = {};
+                dayExpenses.forEach(e => { catSums[e.category] = (catSums[e.category] || 0) + e.amount; });
+
+                let expHtml = "";
+                if(dayExpenses.length > 0) {
+                    expHtml += `<div class="expense-container">`;
+                    for(let cat in catSums) {
+                        let color = categoryColorMap[cat] || fallbackColor;
+                        expHtml += `<div class="expense-item"><span class="dot" style="background-color: ${color};"></span>${catSums[cat].toLocaleString()}円</div>`;
+                    }
+                    expHtml += `</div>`;
+                }
+
+                let isWeekSelected = (state.syncScope === "週単位" && state.syncWeek === currentWeekIdx);
+                html += `<td class="cal-td ${isWeekSelected ? 'highlight-week' : ''}"><span class="cal-daynum">${dayCounter}</span>${expHtml}</td>`;
+                dayCounter++;
+            } else {
+                html += `<td class="cal-td cal-empty"></td>`;
+            }
+        }
+        html += `</tr></tbody></table>`;
+        container.innerHTML = html;
+    }
+
+    function renderPieChart() {
+        const expenses = getExpenses();
+        let pieFiltered = expenses.filter(e => {
+            let d = new Date(e.date);
+            if(state.pieScopeSelection === "全期間") return true;
+            if(d.getFullYear() !== state.syncYear) return false;
+            if(state.pieScopeSelection === "月単位" && (d.getMonth() + 1) !== state.syncMonth) return false;
+            return true;
+        });
+
+        let titleText = "全期間の内訳";
+        if(state.pieScopeSelection === "月単位") titleText = `${state.syncYear}年${state.syncMonth}月の内訳`;
+        else if(state.pieScopeSelection === "年単位") titleText = `${state.syncYear}年の内訳`;
+
+        if(pieFiltered.length === 0) {
+            document.getElementById('pie-chart-div').innerHTML = `<div class="alert-info">選択された期間 のデータがありません。</div>`;
+            return;
+        }
+
+        let catSums = {};
+        pieFiltered.forEach(e => { catSums[e.category] = (catSums[e.category] || 0) + e.amount; });
+
+        let values = [];
+        let labels = [];
+        let colors = [];
+
+        for(let cat in catSums) {
+            values.push(catSums[cat]);
+            labels.push(`${cat}: ${catSums[cat].toLocaleString()}円`);
+            colors.push(categoryColorMap[cat] || fallbackColor);
+        }
+
+        let data = [{
+            values: values,
+            labels: labels,
+            hole: 0.3,
+            type: 'pie',
+            textposition: 'inside',
+            textinfo: 'percent',
+            insidetextorientation: 'horizontal',
+            marker: { colors: colors }
+        }];
+
+        let layout = {
+            title: titleText,
+            height: 420,
+            margin: { l: 20, r: 20, t: 40, b: 10 },
+            legend: { yanchor: "top", y: 0.95, xanchor: "left", x: 1.0 }
+        };
+
+        Plotly.newPlot('pie-chart-div', data, layout, {responsive: true});
+    }
+
+    function renderSummaryTable() {
+        const expenses = getExpenses().sort((a,b) => new Date(a.date) - new Date(b.date));
+        const container = document.getElementById('summary-table-container');
+        
+        let groups = {};
+        expenses.forEach(e => {
+            let d = new Date(e.date);
+            let key = "";
+            if(state.syncScope === "週単位") key = `${d.getFullYear()}年${d.getMonth()+1}月 第${getWeekNumber(d)}週`;
+            else if(state.syncScope === "月単位") key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            else key = `${d.getFullYear()}`;
+
+            groups[key] = (groups[key] || 0) + e.amount;
+        });
+
+        if(Object.keys(groups).length === 0) {
+            container.innerHTML = `<div class="alert-info">集計データがありません。</div>`;
+            return;
+        }
+
+        let html = `<table class="data-table"><thead><tr><th>期間</th><th>合計金額 (円)</th></tr></thead><tbody>`;
+        for(let key in groups) {
+            html += `<tr><td><strong>${key}</strong></td><td>${groups[key].toLocaleString()} 円</td></tr>`;
+        }
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+    }
+</script>
+</body>
+</html>
