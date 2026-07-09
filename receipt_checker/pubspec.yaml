@@ -16,15 +16,17 @@ dependencies:
   image_picker: ^1.2.3
   intl: ^0.20.2
   shared_preferences: ^2.3.5
-  path_provider: ^2.1.3
+  path_provider: ^2.1.6
   table_calendar: ^3.1.2
   fl_chart: ^0.70.2
   cupertino_icons: ^1.0.8
   # プログラムでの画像解析にこれを使用します
   google_mlkit_text_recognition: ^0.14.0
 
+
   # 追加・統合したパッケージ
   google_generative_ai: ^0.4.0
+  image: ^4.9.1
 
 dev_dependencies:
   flutter_test:
