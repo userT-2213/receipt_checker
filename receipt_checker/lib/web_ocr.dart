@@ -14,29 +14,28 @@ Future<String> runTesseractWeb(XFile pickedFile) async {
       completer.complete(text);
     });
 
-    // eval内で非同期即時関数を実行し、確実に全行を個別に取得して結合する
     js.context.callMethod('eval', [
       """
       (async () => {
         try {
           const worker = await Tesseract.createWorker('jpn');
           
-          // 日本語レシート用にパラメータを最適化
           await worker.setParameters({
-            tessedit_pageseg_mode: '3', // 自動判定に戻し、横並びの文字崩れを防止
-            preserve_interword_spaces: '1',
-            // 認識対象をレシート頻出文字に絞り込み、謎の漢字への誤変換を防止
-            tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ円点個、。×¥￥-+:/()「」' + 
-                                     'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンー' +
-                                     'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん' +
-                                     '日月火水木金土時分秒年領収書小計合計合計金額お預りお釣御厳急店ナインイレブンフライドチキン冷やし中華'
+            tessedit_pageseg_mode: '3', // 自動配置判定
+            preserve_interword_spaces: '1'
           });
           
           const { data } = await worker.recognize('$base64Image');
           await worker.terminate();
 
-          // 認識された各行のテキストを強制的に安全な特殊区切り文字[LINE]で結合する
-          const lines = data.lines.map(l => l.text.trim()).filter(t => t.length > 0);
+          // スマホ特有の「改行の崩れ」対策として、1行ずつきれいに成形して結合
+          const lines = data.lines.map(l => {
+            let t = l.text.trim();
+            // 認識精度を下げる細かいゴミ記号（. , _ ~ など）を最低限ブラウザ側で掃除
+            t = t.replace(/[.,_~^`']/g, '');
+            return t;
+          }).filter(t => t.length > 0);
+          
           runTesseractCallback(lines.join('[LINE]'));
         } catch (err) {
           runTesseractCallback('JS_ERROR: ' + err.toString());
