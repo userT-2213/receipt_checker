@@ -20,18 +20,19 @@ Future<String> runTesseractWeb(XFile pickedFile) async {
         try {
           const worker = await Tesseract.createWorker('jpn');
           
+          // 不具合の原因になりやすいホワイトリストは廃止し、自動判定モードに最適化
           await worker.setParameters({
-            tessedit_pageseg_mode: '3', // 自動配置判定
+            tessedit_pageseg_mode: '3', // 自動判定に戻して横並びの文字崩れを防止
             preserve_interword_spaces: '1'
           });
           
           const { data } = await worker.recognize('$base64Image');
           await worker.terminate();
 
-          // スマホ特有の「改行の崩れ」対策として、1行ずつきれいに成形して結合
+          // 認識された各行のテキストを整形して結合
           const lines = data.lines.map(l => {
             let t = l.text.trim();
-            // 認識精度を下げる細かいゴミ記号（. , _ ~ など）を最低限ブラウザ側で掃除
+            // 精度を低下させる細かなゴミ記号（. , _ ~ など）を最低限ブラウザ側で掃除
             t = t.replace(/[.,_~^`']/g, '');
             return t;
           }).filter(t => t.length > 0);
