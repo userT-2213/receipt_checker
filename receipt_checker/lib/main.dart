@@ -795,7 +795,7 @@ int _getWeekNumber(DateTime dt) {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("📊 期間別集計", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
+          const Text("📊 期間別集計データ", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
           const SizedBox(height: 10),
           
 Card(
@@ -997,7 +997,7 @@ Card(
                   Expanded(
                     child: Builder(
                       builder: (context) {
-                        String calendarTitle = "📅 日付別の支出カレンダー";
+                        String calendarTitle = "📅 支出カレンダー";
                         if (_syncScope == "週単位") {
                           calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年$_syncMonth月 第$_syncWeek週)";
                         } else if (_syncScope == "月単位") {
