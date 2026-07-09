@@ -721,7 +721,7 @@ class _DashboardTabState extends State<DashboardTab> {
     _syncWeek = _getWeekNumber(DateTime.now());
   }
 
-int _getWeekNumber(DateTime dt) {
+  int _getWeekNumber(DateTime dt) {
     // その月の1日を取得
     final firstDayOfMonth = DateTime(dt.year, dt.month, 1);
     
@@ -742,6 +742,34 @@ int _getWeekNumber(DateTime dt) {
     final lastDayOfMonth = DateTime(year, month + 1, 0);
     // 最終日が第何週に属するかをそのまま最大週数とする
     return _getWeekNumber(lastDayOfMonth);
+  }
+
+  // ★ 追加：前の月へ移動するロジック（年またぎ対応）
+  void _previousMonth() {
+    setState(() {
+      if (_syncMonth == 1) {
+        _syncMonth = 12;
+        _syncYear--;
+      } else {
+        _syncMonth--;
+      }
+      // 月が変わったら安全のために週数を第1週にリセット
+      _syncWeek = 1;
+    });
+  }
+
+  // ★ 追加：次の月へ移動するロジック（年またぎ対応）
+  void _nextMonth() {
+    setState(() {
+      if (_syncMonth == 12) {
+        _syncMonth = 1;
+        _syncYear++;
+      } else {
+        _syncMonth++;
+      }
+      // 月が変わったら安全のために週数を第1週にリセット
+      _syncWeek = 1;
+    });
   }
 
   @override
@@ -795,7 +823,7 @@ int _getWeekNumber(DateTime dt) {
           const Text("📊 期間別集計データ", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
           const SizedBox(height: 10),
           
-Card(
+          Card(
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -875,7 +903,7 @@ Card(
           ),
           const SizedBox(height: 15),
 
-        // --- ここから：Builderで包んだ比較・集計とGridViewのブロック ---
+          // --- ここから：Builderで包んだ比較・集計とGridViewのブロック ---
           Builder(
             builder: (context) {
               int previousPeriodAmount = 0;
@@ -918,7 +946,7 @@ Card(
                 for (var e in prevExpenses) { previousPeriodAmount += (e.amount as num).toInt(); }
               }
 
-             // 差額と％の計算（金額・％の順に修正）
+              // 差額と％の計算（金額・％の順に修正）
               int diffAmount = selectedPeriodAmount - previousPeriodAmount;
               String compareValueText = "";
               
@@ -981,7 +1009,7 @@ Card(
           // --- ここまで：BuilderとGridViewのブロック ---
           const SizedBox(height: 25),
 
-          // --- カレンダーのヘッダーとプルダウン部分 ---
+          // --- カレンダーのヘッダーとプルダウン・矢印ボタン部分 ---
           Card(
             elevation: 0,
             color: Colors.teal.withOpacity(0.05),
@@ -1009,6 +1037,7 @@ Card(
                       },
                     ),
                   ),
+                  // ★ 修正：月の横に左右の切り替え矢印を配置したコントロール群
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1022,7 +1051,16 @@ Card(
                           onChanged: (v) { if (v != null) setState(() { _syncYear = v; }); },
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 4),
+                      // 左矢印ボタン
+                      IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: const Icon(Icons.arrow_back_ios, size: 16, color: Colors.teal),
+                        onPressed: _previousMonth,
+                        tooltip: "前の月へ",
+                      ),
+                      const SizedBox(width: 4),
                       SizedBox(
                         width: 75,
                         child: DropdownButtonFormField<int>(
@@ -1043,6 +1081,15 @@ Card(
                           },
                         ),
                       ),
+                      const SizedBox(width: 4),
+                      // 右矢印ボタン
+                      IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.teal),
+                        onPressed: _nextMonth,
+                        tooltip: "次の月へ",
+                      ),
                     ],
                   ),
                 ],
@@ -1053,7 +1100,7 @@ Card(
           _buildCalendarGrid(), // カレンダー本体の呼び出し
           const SizedBox(height: 25),
 
-         const Text("🍕 カテゴリ割合", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
+          const Text("🍕 カテゴリ割合", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1073,7 +1120,6 @@ Card(
                           // --- 期間別集計・支出合計との連動処理 ---
                           if (v == "週単位") {
                             _syncScope = "週単位";
-                            // もし現在 _syncWeek が未設定（0など）の場合は、現在のターゲット日の週番号を入れるロジックを挟むと安全です
                             if (_syncWeek == 0) {
                               _syncWeek = _getWeekNumber(DateTime(_syncYear, _syncMonth, 1));
                             }
@@ -1082,7 +1128,7 @@ Card(
                           } else if (v == "年単位") {
                             _syncScope = "年単位";
                           } else if (v == "全期間") {
-                            _syncScope = "全期間"; // 上部の稼働範囲タイプも全期間に対応させる場合
+                            _syncScope = "全期間"; 
                           }
                           // ------------------------------------
                         }); 
@@ -1095,7 +1141,7 @@ Card(
             }).toList(),
           ),
           const SizedBox(height: 15),
-         // --- ここから：選択期間に応じたデータの再抽出と集計ロジックを挿入 ---
+          // --- ここから：選択期間に応じたデータの再抽出と集計ロジックを挿入 ---
           Builder(
             builder: (context) {
               List<dynamic> targetExpensesForPie = [];
@@ -1119,11 +1165,10 @@ Card(
                 targetExpensesForPie = widget.allExpenses;
               }
 
-             Map<String, int> activeCategorySums = {};
+              Map<String, int> activeCategorySums = {};
               int pieTotalAmount = 0;
 
               for (var e in targetExpensesForPie) {
-                // e.amount を .toInt() で整数にキャストして型を合わせます
                 final amountInt = (e.amount as num).toInt(); 
                 activeCategorySums[e.category] = (activeCategorySums[e.category] ?? 0) + amountInt;
                 pieTotalAmount += amountInt;
@@ -1178,7 +1223,6 @@ Card(
               );
             },
           ),
-          // --- ここまで：集計ロジックとグラフ描画の挿入 ---
           const SizedBox(height: 20),
         ],
       ),
@@ -1223,7 +1267,6 @@ Card(
         child: Text(w, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: w == "日" ? Colors.red : (w == "土" ? Colors.blue : Colors.black))),
       ));
     }
-  
 
     // 1日の曜日より前の空白マスを生成
     for (int i = 0; i < firstDayOffset; i++) {
@@ -1369,10 +1412,9 @@ Card(
             ),
           ),
         ),
-      ); // ← dayCells.add の正しい閉じカッコ
+      ); 
     }
 
-    
     // グリッドを綺麗な長方形（7の倍数のマス数）にするための末尾の空白マス埋め
     final totalCells = dayCells.length - 7;
     final remainingCells = (7 - (totalCells % 7)) % 7;
@@ -1394,4 +1436,4 @@ Card(
       ),
     );
   } 
-  }// ★ここ！この「}」が実際にご自身のコード（エディタ上）に存在するか確認してください
+}
