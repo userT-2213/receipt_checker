@@ -1024,11 +1024,11 @@ class _DashboardTabState extends State<DashboardTab> {
                       builder: (context) {
                         String calendarTitle = "📅 支出カレンダー";
                         if (_syncScope == "週単位") {
-                          calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年$_syncMonth月 第$_syncWeek週)";
+                          calendarTitle = "📅 支出カレンダー ($_syncYear年$_syncMonth月 第$_syncWeek週)";
                         } else if (_syncScope == "月単位") {
-                          calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年$_syncMonth月分)";
+                          calendarTitle = "📅 支出カレンダー ($_syncYear年$_syncMonth月分)";
                         } else if (_syncScope == "年単位") {
-                          calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年分)";
+                          calendarTitle = "📅 支出カレンダー ($_syncYear年分)";
                         }
                         return Text(
                           calendarTitle,
