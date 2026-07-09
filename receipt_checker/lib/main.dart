@@ -174,7 +174,7 @@ class _MainTabScreenState extends State<MainTabScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('スマート・レシート・チェッカー', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        title: const Text('レシートチェック&支出管理', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: Colors.teal,
         bottom: TabBar(
           controller: _tabController,
@@ -208,9 +208,6 @@ class _MainTabScreenState extends State<MainTabScreen> with SingleTickerProvider
   }
 }
 
-// ==========================================
-// タブ1: レシート登録・入力
-// ==========================================
 
 // ==========================================
 // タブ1: レシート登録・入力
