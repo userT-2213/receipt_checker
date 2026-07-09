@@ -21,10 +21,15 @@ Future<String> runTesseractWeb(XFile pickedFile) async {
         try {
           const worker = await Tesseract.createWorker('jpn');
           
-          // レシートの行を塊で飛ばさず、上から順に一行ずつスキャンさせる設定 (4: Assume a single column of text of variable sizes)
+          // 日本語レシート用にパラメータを最適化
           await worker.setParameters({
-            tessedit_pageseg_mode: '4',
-            preserve_interword_spaces: '1'
+            tessedit_pageseg_mode: '3', // 自動判定に戻し、横並びの文字崩れを防止
+            preserve_interword_spaces: '1',
+            // 認識対象をレシート頻出文字に絞り込み、謎の漢字への誤変換を防止
+            tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ円点個、。×¥￥-+:/()「」' + 
+                                     'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンー' +
+                                     'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん' +
+                                     '日月火水木金土時分秒年領収書小計合計合計金額お預りお釣御厳急店ナインイレブンフライドチキン冷やし中華'
           });
           
           const { data } = await worker.recognize('$base64Image');
