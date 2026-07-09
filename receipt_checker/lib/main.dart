@@ -298,7 +298,18 @@ class _InputTabState extends State<InputTab> {
         final textRecognizer = TextRecognizer(script: TextRecognitionScript.japanese);
         try {
           final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
-          textLines = recognizedText.blocks.map((b) => b.text.trim()).toList();
+          
+          // 【修正】blocksではなく、各ブロックの中にある「lines（横一行）」をすべて平坦に取り出す
+          List<String> extractedLines = [];
+          for (var block in recognizedText.blocks) {
+            for (var line in block.lines) {
+              if (line.text.trim().isNotEmpty) {
+                extractedLines.add(line.text.trim());
+              }
+            }
+          }
+          textLines = extractedLines;
+          
         } finally {
           textRecognizer.close();
         }
@@ -337,7 +348,7 @@ class _InputTabState extends State<InputTab> {
             : baseShopName;
       }
 
-      // --- 2. 品名・日付・金額の抽出 ---
+     // --- 2. 品名・日付・金額の抽出 ---
       for (int i = 0; i < textLines.length; i++) {
         String originalLine = textLines[i];
         String cleanLine = originalLine.replaceAll(RegExp(r'\s+'), '');
@@ -361,26 +372,28 @@ class _InputTabState extends State<InputTab> {
           continue;
         }
 
-        // 【修正】除外キーワードの判定を強化（お預りや店名ブレ、住所等のキーワードを追加）
-        bool isExcludeKeyword = RegExp(r'計|釣|税|小計|割引|値引|領収|TEL|号|責|登録|単価|現|金|クレジット|会員|スキャン|預り|預リ|ナインイレ|千葉県|船橋市').hasMatch(cleanLine);
+        // 【強化】除外キーワードの判定（スマホの誤認識「務り」「お務」「預」などのブレに対応）
+        bool isExcludeKeyword = RegExp(r'計|釣|税|小計|割引|値引|領収|TEL|号|責|登録|単価|現|金|クレジット|会員|スキャン|預り|預リ|お預|お釣|務り|務リ|ナインイレ|千葉県|船橋市').hasMatch(cleanLine);
         bool isDateTimeOrPhone = RegExp(r'\d{2}:\d{2}|0\d{1,4}-\d{1,4}-\d{3,4}|\d{4}年').hasMatch(cleanLine);
 
         if (!isExcludeKeyword && !isDateTimeOrPhone) {
           String candidate = originalLine;
 
-          // 数量や金額部分を前方一致でカット
-          var itemMatch = RegExp(r'(.+?)(?=[xXメ*✕×]\d|[\d,]+円|[￥\\¥])').firstMatch(originalLine);
+          // 数量や金額部分を前方一致でカット（スマホの誤認識対策）
+          // カタカナの「メ」は単体かつ後ろに数字が続く場合のみ数量の「×」とみなすように修正
+          var itemMatch = RegExp(r'(.+?)(?=[xX✕×*]\d|メ\d|[\d,]+円|[￥\\¥])').firstMatch(originalLine);
           if (itemMatch != null) {
             candidate = itemMatch.group(1)!.trim();
           }
 
-          // 末尾に残ったノイズをトリミング
+          // 末尾に残ったノイズ（数字や記号）をトリミング
           candidate = candidate.replaceAll(RegExp(r'[\s_。、\.・=+\-xX✕×\d]+$'), '').trim();
 
           // 抽出した店名自体、または店名に含まれる文字列も完全に除外
           bool isShopName = detectedShop.isNotEmpty && (detectedShop.contains(candidate) || candidate.contains(detectedShop));
 
-          if (candidate.length >= 2 && !isShopName && !candidate.contains("店")) {
+          // 2文字以上かつ、店名関連や「お釣り」等の残骸でなければ商品名として追加
+          if (candidate.length >= 2 && !isShopName && !candidate.contains("店") && !RegExp(r'^[おオ]?[預釣務]').hasMatch(candidate)) {
             detectedItems.add(candidate);
           }
         }
