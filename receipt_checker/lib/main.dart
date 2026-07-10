@@ -9,6 +9,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+
 // ★これに差し替え：Webの時だけ実際の処理を、それ以外はスタブを読み込む
 import 'web_ocr_stub.dart' if (dart.library.js) 'web_ocr.dart' as web_ocr;
 void main() {
@@ -299,7 +300,6 @@ class _InputTabState extends State<InputTab> {
         try {
           final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
           
-          // 【修正】blocksではなく、各ブロックの中にある「lines（横一行）」をすべて平坦に取り出す
           List<String> extractedLines = [];
           for (var block in recognizedText.blocks) {
             for (var line in block.lines) {
@@ -372,27 +372,21 @@ class _InputTabState extends State<InputTab> {
           continue;
         }
 
-        // 【強化】除外キーワードの判定（スマホの誤認識「務り」「お務」「預」などのブレに対応）
         bool isExcludeKeyword = RegExp(r'計|釣|税|小計|割引|値引|領収|TEL|号|責|登録|単価|現|金|クレジット|会員|スキャン|預り|預リ|お預|お釣|務り|務リ|ナインイレ|千葉県|船橋市').hasMatch(cleanLine);
         bool isDateTimeOrPhone = RegExp(r'\d{2}:\d{2}|0\d{1,4}-\d{1,4}-\d{3,4}|\d{4}年').hasMatch(cleanLine);
 
         if (!isExcludeKeyword && !isDateTimeOrPhone) {
           String candidate = originalLine;
 
-          // 数量や金額部分を前方一致でカット（スマホの誤認識対策）
-          // カタカナの「メ」は単体かつ後ろに数字が続く場合のみ数量の「×」とみなすように修正
           var itemMatch = RegExp(r'(.+?)(?=[xX✕×*]\d|メ\d|[\d,]+円|[￥\\¥])').firstMatch(originalLine);
           if (itemMatch != null) {
             candidate = itemMatch.group(1)!.trim();
           }
 
-          // 末尾に残ったノイズ（数字や記号）をトリミング
           candidate = candidate.replaceAll(RegExp(r'[\s_。、\.・=+\-xX✕×\d]+$'), '').trim();
 
-          // 抽出した店名自体、または店名に含まれる文字列も完全に除外
           bool isShopName = detectedShop.isNotEmpty && (detectedShop.contains(candidate) || candidate.contains(detectedShop));
 
-          // 2文字以上かつ、店名関連や「お釣り」等の残骸でなければ商品名として追加
           if (candidate.length >= 2 && !isShopName && !candidate.contains("店") && !RegExp(r'^[おオ]?[預釣務]').hasMatch(candidate)) {
             detectedItems.add(candidate);
           }
@@ -415,7 +409,6 @@ class _InputTabState extends State<InputTab> {
         detectedShop = textLines.first.replaceAll(RegExp(r'\s+'), '');
       }
 
-      // 各フォームに入力値をセット
       setState(() {
         _dateController.text = detectedDate;
         _storeController.text = detectedShop.isEmpty ? "ナインイレブン日大前店" : detectedShop;
@@ -535,7 +528,7 @@ class _InputTabState extends State<InputTab> {
                   children: [
                     TextFormField(
                       controller: _dateController,
-                      readOnly: true, // 手入力を防ぎタップ選択に強制
+                      readOnly: true, 
                       onTap: () => _selectDate(context),
                       decoration: const InputDecoration(labelText: "日付 (YYYY-MM-DD)", suffixIcon: Icon(Icons.calendar_today)),
                       validator: (v) => (v == null || v.isEmpty) ? "日付を入力してください" : null,
@@ -587,7 +580,7 @@ class _InputTabState extends State<InputTab> {
                               _itemController.clear();
                               _amountController.clear();
                               setState(() { _webImageBytes = null; });
-                              widget.onDataChanged(); // 親のリスト状態を更新
+                              widget.onDataChanged(); 
                             }
                           }
                         },
@@ -734,14 +727,9 @@ class _DashboardTabState extends State<DashboardTab> {
     _syncWeek = _getWeekNumber(DateTime.now());
   }
 
-int _getWeekNumber(DateTime dt) {
-    // その月の1日を取得
+  int _getWeekNumber(DateTime dt) {
     final firstDayOfMonth = DateTime(dt.year, dt.month, 1);
-    
-    // 1日の曜日 (1:月, ..., 6:土, 7:日) を日曜日始まり(0)〜土曜日(6)のオフセットに変換
     final firstDayOffset = firstDayOfMonth.weekday == 7 ? 0 : firstDayOfMonth.weekday;
-    
-    // (日付 + 1日のオフセット - 1) を 7 で割ることで、カレンダー上の行数（第何週）を算出
     return ((dt.day + firstDayOffset - 1) / 7).floor() + 1;
   }
 
@@ -749,11 +737,8 @@ int _getWeekNumber(DateTime dt) {
     return DateTime(year, month + 1, 0).day;
   }
 
-  // 選択された月が最大で第何週まであるかを計算する
   int _getMaxWeeksInMonth(int year, int month) {
-    // その月の最終日（例: 31日）を取得
     final lastDayOfMonth = DateTime(year, month + 1, 0);
-    // 最終日が第何週に属するかをそのまま最大週数とする
     return _getWeekNumber(lastDayOfMonth);
   }
 
@@ -786,415 +771,428 @@ int _getWeekNumber(DateTime dt) {
 
     int calculatedAverage = periodDays > 0 ? (selectedPeriodAmount / periodDays).round() : 0;
 
-    List<ExpenseData> pieFilteredExpenses = widget.allExpenses.where((item) {
-      DateTime? dt = DateTime.tryParse(item.date);
-      if (dt == null) return false;
-      if (_pieScopeSelection == "全期間") return true;
-      if (dt.year != _syncYear) return false;
-      if (_pieScopeSelection == "年単位") return true;
-      return dt.month == _syncMonth;
-    }).toList();
+    // --- レイアウトビルダーでラップして画面幅を感知させる ---
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 横幅が800px以上の場合はPC向け2カラム構成と判定
+        final bool isWideScreen = constraints.maxWidth >= 800;
 
-    Map<String, int> categorySums = {};
-    for (var item in pieFilteredExpenses) {
-      categorySums[item.category] = (categorySums[item.category] ?? 0) + item.amount;
-    }
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("📊 期間別集計データ", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
-          const SizedBox(height: 10),
-          
-Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                children: [
-                  // 1行目: ラジオボタン（画面からはみ出さないよう横スクロール可能に）
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: ["週単位", "月単位", "年単位"].map((scope) {
-                        return Row(
-                          children: [
-                            Radio<String>(
-                              value: scope,
-                              groupValue: _syncScope,
-                              activeColor: Colors.teal,
-                              onChanged: (v) {
-                                if (v != null) {
-                                  setState(() {
-                                    _syncScope = v;
-                                    _pieScopeSelection = (v == "週単位" || v == "月単位") ? "月単位" : "年単位";
-                                  });
-                                }
-                              },
-                            ),
-                            Text(scope, style: const TextStyle(fontSize: 12)),
-                            const SizedBox(width: 8),
-                          ],
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // 2行目: 重複を削除し、「年・月・週」が1つずつ綺麗に並ぶドロップダウン
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          value: _syncYear,
-                          decoration: const InputDecoration(labelText: "年"),
-                          items: List.generate(11, (i) => DateTime.now().year - 5 + i).map((y) => DropdownMenuItem(value: y, child: Text("$y年"))).toList(),
-                          onChanged: (v) { if (v != null) setState(() { _syncYear = v; }); },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          value: _syncMonth,
-                          decoration: const InputDecoration(labelText: "月"),
-                          items: List.generate(12, (i) => i + 1).map((m) => DropdownMenuItem(value: m, child: Text("$m月"))).toList(),
-                          onChanged: _syncScope == "年単位" ? null : (v) { if (v != null) setState(() { _syncMonth = v; }); },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Builder(
-                          builder: (context) {
-                            final maxWeeks = _getMaxWeeksInMonth(_syncYear, _syncMonth);
-                            if (_syncWeek > maxWeeks) {
-                              _syncWeek = 1;
-                            }
-                            return DropdownButtonFormField<int>(
-                              value: _syncWeek,
-                              decoration: const InputDecoration(labelText: "週"),
-                              items: List.generate(maxWeeks, (i) => i + 1).map((w) => DropdownMenuItem(value: w, child: Text("第$w週"))).toList(),
-                              onChanged: (_syncScope == "月単位" || _syncScope == "年単位") ? null : (v) { if (v != null) setState(() { _syncWeek = v; }); },
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 15),
-
-        // --- ここから：Builderで包んだ比較・集計とGridViewのブロック ---
-          Builder(
-            builder: (context) {
-              int previousPeriodAmount = 0;
-
-              if (_syncScope == "週単位") {
-                int prevWeek = _syncWeek - 1;
-                int prevMonth = _syncMonth;
-                int prevYear = _syncYear;
-                if (prevWeek < 1) {
-                  prevMonth -= 1;
-                  if (prevMonth < 1) {
-                    prevMonth = 12;
-                    prevYear -= 1;
-                  }
-                  prevWeek = _getMaxWeeksInMonth(prevYear, prevMonth);
-                }
-                
-                final prevExpenses = widget.allExpenses.where((e) {
-                  if (e.date.length < 10) return false;
-                  final date = DateTime.tryParse(e.date);
-                  if (date == null) return false;
-                  return date.year == prevYear && date.month == prevMonth && _getWeekNumber(date) == prevWeek;
-                });
-                for (var e in prevExpenses) { previousPeriodAmount += (e.amount as num).toInt(); }
-
-              } else if (_syncScope == "月単位") {
-                int prevMonth = _syncMonth - 1;
-                int prevYear = _syncYear;
-                if (prevMonth < 1) {
-                  prevMonth = 12;
-                  prevYear -= 1;
-                }
-                final prefix = "$prevYear-${prevMonth.toString().padLeft(2, '0')}";
-                final prevExpenses = widget.allExpenses.where((e) => e.date.startsWith(prefix));
-                for (var e in prevExpenses) { previousPeriodAmount += (e.amount as num).toInt(); }
-
-              } else if (_syncScope == "年単位") {
-                final prefix = "${_syncYear - 1}-";
-                final prevExpenses = widget.allExpenses.where((e) => e.date.startsWith(prefix));
-                for (var e in prevExpenses) { previousPeriodAmount += (e.amount as num).toInt(); }
-              }
-
-             // 差額と％の計算（金額・％の順に修正）
-              int diffAmount = selectedPeriodAmount - previousPeriodAmount;
-              String compareValueText = "";
-              
-              if (previousPeriodAmount == 0) {
-                String diffText = diffAmount >= 0 
-                    ? "+${NumberFormat('#,###').format(diffAmount)}円" 
-                    : "${NumberFormat('#,###').format(diffAmount)}円";
-                compareValueText = diffAmount >= 0 ? "$diffText (+100.0%)" : "$diffText (0.0%)";
-              } else {
-                double percent = (diffAmount / previousPeriodAmount) * 100;
-                String percentText = "";
-                String diffText = "";
-                
-                if (diffAmount > 0) {
-                  percentText = "+${percent.toStringAsFixed(1)}%";
-                  diffText = "+${NumberFormat('#,###').format(diffAmount)}円";
-                } else if (diffAmount < 0) {
-                  percentText = "${percent.toStringAsFixed(1)}%";
-                  diffText = "${NumberFormat('#,###').format(diffAmount)}円";
-                } else {
-                  percentText = "0.0%";
-                  diffText = "0円";
-                }
-                
-                // 金額を先、％をカッコ内に配置
-                compareValueText = "$diffText ($percentText)";
-              }
-
-              String compareTitle = "⚖️ 前期比 (${_syncScope == '週単位' ? '先週' : _syncScope == '月単位' ? '先月' : '前年'}比)";
-
-              // 画面に表示する GridView を return で返す
-              return GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 2.2,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                children: [
-                  _buildMetricCard("📊 累計総支出額", "${NumberFormat('#,###').format(totalAll)} 円"),
-                  Builder(
-                    builder: (context) {
-                      String label = "🧮 選択期間の支出";
-                      if (_syncScope == "週単位") {
-                        label = "🧮 $_syncYear年$_syncMonth月第$_syncWeek週の支出";
-                      } else if (_syncScope == "月単位") {
-                        label = "🧮 $_syncYear年$_syncMonth月の支出";
-                      } else if (_syncScope == "年単位") {
-                        label = "🧮 $_syncYear年の支出";
-                      }
-                      return _buildMetricCard(label, "${NumberFormat('#,###').format(selectedPeriodAmount)} 円");
-                    },
-                  ),
-                  _buildMetricCard("📐 期間中の1日平均支出", "${NumberFormat('#,###').format(calculatedAverage)} 円"),
-                  _buildMetricCard(compareTitle, compareValueText),
-                ],
-              );
-            },
-          ),
-          // --- ここまで：BuilderとGridViewのブロック ---
-          const SizedBox(height: 25),
-
-          // --- カレンダーのヘッダーとプルダウン部分 ---
-          Card(
-            elevation: 0,
-            color: Colors.teal.withOpacity(0.05),
-            margin: const EdgeInsets.symmetric(vertical: 8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Builder(
-                      builder: (context) {
-                        String calendarTitle = "📅 支出カレンダー";
-                        if (_syncScope == "週単位") {
-                          calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年$_syncMonth月 第$_syncWeek週)";
-                        } else if (_syncScope == "月単位") {
-                          calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年$_syncMonth月分)";
-                        } else if (_syncScope == "年単位") {
-                          calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年分)";
-                        }
-                        return Text(
-                          calendarTitle,
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.teal),
-                        );
-                      },
-                    ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 90,
-                        child: DropdownButtonFormField<int>(
-                          value: _syncYear,
-                          decoration: const InputDecoration(labelText: "年", contentPadding: EdgeInsets.symmetric(vertical: 4)),
-                          style: const TextStyle(fontSize: 13, color: Colors.black87),
-                          items: List.generate(11, (i) => DateTime.now().year - 5 + i).map((y) => DropdownMenuItem(value: y, child: Text("$y年"))).toList(),
-                          onChanged: (v) { if (v != null) setState(() { _syncYear = v; }); },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 75,
-                        child: DropdownButtonFormField<int>(
-                          value: _syncMonth,
-                          decoration: const InputDecoration(labelText: "月", contentPadding: EdgeInsets.symmetric(vertical: 4)),
-                          style: const TextStyle(fontSize: 13, color: Colors.black87),
-                          items: List.generate(12, (i) => i + 1).map((m) => DropdownMenuItem(value: m, child: Text("$m月"))).toList(),
-                          onChanged: (v) {
-                            if (v != null) {
-                              setState(() {
-                                _syncMonth = v;
-                                if (_syncScope == "年単位") {
-                                  _syncScope = "月単位";
-                                  _pieScopeSelection = "月単位";
-                                }
-                              });
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 5),
-          _buildCalendarGrid(), // カレンダー本体の呼び出し
-          const SizedBox(height: 25),
-
-         const Text("🍕 カテゴリ割合", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            // 「週単位」をリストの先頭に追加
-            children: ["週単位", "月単位", "年単位", "全期間"].map((pScope) {
-              return Row(
-                children: [
-                  Radio<String>(
-                    value: pScope, 
-                    groupValue: _pieScopeSelection, 
-                    activeColor: Colors.teal,
-                    onChanged: (v) { 
-                      if (v != null) {
-                        setState(() { 
-                          _pieScopeSelection = v; 
-                          
-                          // --- 期間別集計・支出合計との連動処理 ---
-                          if (v == "週単位") {
-                            _syncScope = "週単位";
-                            // もし現在 _syncWeek が未設定（0など）の場合は、現在のターゲット日の週番号を入れるロジックを挟むと安全です
-                            if (_syncWeek == 0) {
-                              _syncWeek = _getWeekNumber(DateTime(_syncYear, _syncMonth, 1));
-                            }
-                          } else if (v == "月単位") {
-                            _syncScope = "月単位";
-                          } else if (v == "年単位") {
-                            _syncScope = "年単位";
-                          } else if (v == "全期間") {
-                            _syncScope = "全期間"; // 上部の稼働範囲タイプも全期間に対応させる場合
-                          }
-                          // ------------------------------------
-                        }); 
-                      }
-                    },
-                  ),
-                  Text(pScope, style: const TextStyle(fontSize: 12)),
-                ],
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 15),
-         // --- ここから：選択期間に応じたデータの再抽出と集計ロジックを挿入 ---
-          Builder(
-            builder: (context) {
-              List<dynamic> targetExpensesForPie = [];
-
-              if (_pieScopeSelection == "週単位") {
-                targetExpensesForPie = widget.allExpenses.where((e) {
-                  if (e.date.length < 10) return false;
-                  final date = DateTime.tryParse(e.date);
-                  if (date == null) return false;
-                  return date.year == _syncYear && date.month == _syncMonth && _getWeekNumber(date) == _syncWeek;
-                }).toList();
-              } else if (_pieScopeSelection == "月単位") {
-                targetExpensesForPie = widget.allExpenses.where((e) {
-                  return e.date.startsWith("$_syncYear-${_syncMonth.toString().padLeft(2, '0')}");
-                }).toList();
-              } else if (_pieScopeSelection == "年単位") {
-                targetExpensesForPie = widget.allExpenses.where((e) {
-                  return e.date.startsWith("$_syncYear-");
-                }).toList();
-              } else if (_pieScopeSelection == "全期間") {
-                targetExpensesForPie = widget.allExpenses;
-              }
-
-             Map<String, int> activeCategorySums = {};
-              int pieTotalAmount = 0;
-
-              for (var e in targetExpensesForPie) {
-                // e.amount を .toInt() で整数にキャストして型を合わせます
-                final amountInt = (e.amount as num).toInt(); 
-                activeCategorySums[e.category] = (activeCategorySums[e.category] ?? 0) + amountInt;
-                pieTotalAmount += amountInt;
-              }
-
-              final double denominator = pieTotalAmount == 0 ? 1.0 : pieTotalAmount.toDouble();
-
-              // 抽出したデータが空ならメッセージを表示
-              if (activeCategorySums.isEmpty) {
-                return const Center(child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 32.0),
-                  child: Text("指定期間のグラフデータがありません。"),
-                ));
-              }
-
-              // データがある場合は円グラフと凡例を描画
-              return Column(
-                children: [
-                  SizedBox(
-                    height: 220,
-                    child: PieChart(
-                      PieChartData(
-                        sectionsSpace: 2,
-                        centerSpaceRadius: 40,
-                        sections: activeCategorySums.entries.map((entry) {
-                          return PieChartSectionData(
-                            color: widget.categoryColorMap[entry.key] ?? Colors.grey,
-                            value: entry.value.toDouble(),
-                            title: '${(entry.value / denominator * 100).toStringAsFixed(1)}%',
-                            radius: 50,
-                            titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87),
+        // 【左カラム用コンテンツ】: 期間指定・4枚の集計カード・カレンダー
+        final Widget leftColumnContent = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("📊 期間別集計データ", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
+            const SizedBox(height: 10),
+            
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: ["週単位", "月単位", "年単位"].map((scope) {
+                          return Row(
+                            children: [
+                              Radio<String>(
+                                value: scope,
+                                groupValue: _syncScope,
+                                activeColor: Colors.teal,
+                                onChanged: (v) {
+                                  if (v != null) {
+                                    setState(() {
+                                      _syncScope = v;
+                                      _pieScopeSelection = (v == "週単位" || v == "月単位") ? "月単位" : "年単位";
+                                    });
+                                  }
+                                },
+                              ),
+                              Text(scope, style: const TextStyle(fontSize: 12)),
+                              const SizedBox(width: 8),
+                            ],
                           );
                         }).toList(),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 15),
-                  Wrap(
-                    spacing: 8, runSpacing: 4,
-                    children: activeCategorySums.entries.map((entry) {
-                      return Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(width: 12, height: 12, color: widget.categoryColorMap[entry.key]),
-                          const SizedBox(width: 4),
-                          Text("${entry.key}: ${NumberFormat('#,###').format(entry.value)}円", style: const TextStyle(fontSize: 11)),
-                        ],
-                      );
-                    }).toList(),
-                  ),
-                ],
-              );
-            },
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            value: _syncYear,
+                            decoration: const InputDecoration(labelText: "年"),
+                            items: List.generate(11, (i) => DateTime.now().year - 5 + i).map((y) => DropdownMenuItem(value: y, child: Text("$y年"))).toList(),
+                            onChanged: (v) { if (v != null) setState(() { _syncYear = v; }); },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            value: _syncMonth,
+                            decoration: const InputDecoration(labelText: "月"),
+                            items: List.generate(12, (i) => i + 1).map((m) => DropdownMenuItem(value: m, child: Text("$m月"))).toList(),
+                            onChanged: _syncScope == "年単位" ? null : (v) { if (v != null) setState(() { _syncMonth = v; }); },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Builder(
+                            builder: (context) {
+                              final maxWeeks = _getMaxWeeksInMonth(_syncYear, _syncMonth);
+                              if (_syncWeek > maxWeeks) {
+                                _syncWeek = 1;
+                              }
+                              return DropdownButtonFormField<int>(
+                                value: _syncWeek,
+                                decoration: const InputDecoration(labelText: "週"),
+                                items: List.generate(maxWeeks, (i) => i + 1).map((w) => DropdownMenuItem(value: w, child: Text("第$w週"))).toList(),
+                                onChanged: (_syncScope == "月単位" || _syncScope == "年単位") ? null : (v) { if (v != null) setState(() { _syncWeek = v; }); },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 15),
+
+            Builder(
+              builder: (context) {
+                int previousPeriodAmount = 0;
+
+                if (_syncScope == "週単位") {
+                  int prevWeek = _syncWeek - 1;
+                  int prevMonth = _syncMonth;
+                  int prevYear = _syncYear;
+                  if (prevWeek < 1) {
+                    prevMonth -= 1;
+                    if (prevMonth < 1) {
+                      prevMonth = 12;
+                      prevYear -= 1;
+                    }
+                    prevWeek = _getMaxWeeksInMonth(prevYear, prevMonth);
+                  }
+                  
+                  final prevExpenses = widget.allExpenses.where((e) {
+                    if (e.date.length < 10) return false;
+                    final date = DateTime.tryParse(e.date);
+                    if (date == null) return false;
+                    return date.year == prevYear && date.month == prevMonth && _getWeekNumber(date) == prevWeek;
+                  });
+                  for (var e in prevExpenses) { previousPeriodAmount += (e.amount as num).toInt(); }
+
+                } else if (_syncScope == "月単位") {
+                  int prevMonth = _syncMonth - 1;
+                  int prevYear = _syncYear;
+                  if (prevMonth < 1) {
+                    prevMonth = 12;
+                    prevYear -= 1;
+                  }
+                  final prefix = "$prevYear-${prevMonth.toString().padLeft(2, '0')}";
+                  final prevExpenses = widget.allExpenses.where((e) => e.date.startsWith(prefix));
+                  for (var e in prevExpenses) { previousPeriodAmount += (e.amount as num).toInt(); }
+
+                } else if (_syncScope == "年単位") {
+                  final prefix = "${_syncYear - 1}-";
+                  final prevExpenses = widget.allExpenses.where((e) => e.date.startsWith(prefix));
+                  for (var e in prevExpenses) { previousPeriodAmount += (e.amount as num).toInt(); }
+                }
+
+                int diffAmount = selectedPeriodAmount - previousPeriodAmount;
+                String compareValueText = "";
+                
+                if (previousPeriodAmount == 0) {
+                  String diffText = diffAmount >= 0 
+                      ? "+${NumberFormat('#,###').format(diffAmount)}円" 
+                      : "${NumberFormat('#,###').format(diffAmount)}円";
+                  compareValueText = diffAmount >= 0 ? "$diffText (+100.0%)" : "$diffText (0.0%)";
+                } else {
+                  double percent = (diffAmount / previousPeriodAmount) * 100;
+                  String percentText = "";
+                  String diffText = "";
+                  
+                  if (diffAmount > 0) {
+                    percentText = "+${percent.toStringAsFixed(1)}%";
+                    diffText = "+${NumberFormat('#,###').format(diffAmount)}円";
+                  } else if (diffAmount < 0) {
+                    percentText = "${percent.toStringAsFixed(1)}%";
+                    diffText = "${NumberFormat('#,###').format(diffAmount)}円";
+                  } else {
+                    percentText = "0.0%";
+                    diffText = "0円";
+                  }
+                  compareValueText = "$diffText ($percentText)";
+                }
+
+                String compareTitle = "⚖️ 前期比 (${_syncScope == '週単位' ? '先週' : _syncScope == '月単位' ? '先月' : '前年'}比)";
+
+                return GridView.count(
+                  // ★ PCなどのワイド画面時は横に4列、スマホ時は従来通り2列
+                  crossAxisCount: isWideScreen ? 4 : 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  childAspectRatio: 2.2,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  children: [
+                    _buildMetricCard("📊 累計総支出額", "${NumberFormat('#,###').format(totalAll)} 円"),
+                    Builder(
+                      builder: (context) {
+                        String label = "🧮 選択期間の支出";
+                        if (_syncScope == "週単位") {
+                          label = "🧮 $_syncYear年$_syncMonth月第$_syncWeek週の支出";
+                        } else if (_syncScope == "月単位") {
+                          label = "🧮 $_syncYear年$_syncMonth月の支出";
+                        } else if (_syncScope == "年単位") {
+                          label = "🧮 $_syncYear年の支出";
+                        }
+                        return _buildMetricCard(label, "${NumberFormat('#,###').format(selectedPeriodAmount)} 円");
+                      },
+                    ),
+                    _buildMetricCard("📐 期間中の1日平均支出", "${NumberFormat('#,###').format(calculatedAverage)} 円"),
+                    _buildMetricCard(compareTitle, compareValueText),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 25),
+
+            Card(
+              elevation: 0,
+              color: Colors.teal.withOpacity(0.05),
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Builder(
+                        builder: (context) {
+                          String calendarTitle = "📅 支出カレンダー";
+                          if (_syncScope == "週単位") {
+                            calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年$_syncMonth月 第$_syncWeek週)";
+                          } else if (_syncScope == "月単位") {
+                            calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年$_syncMonth月分)";
+                          } else if (_syncScope == "年単位") {
+                            calendarTitle = "📅 日付別の支出カレンダー ($_syncYear年分)";
+                          }
+                          return Text(
+                            calendarTitle,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.teal),
+                          );
+                        },
+                      ),
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 90,
+                          child: DropdownButtonFormField<int>(
+                            value: _syncYear,
+                            decoration: const InputDecoration(labelText: "年", contentPadding: EdgeInsets.symmetric(vertical: 4)),
+                            style: const TextStyle(fontSize: 13, color: Colors.black87),
+                            items: List.generate(11, (i) => DateTime.now().year - 5 + i).map((y) => DropdownMenuItem(value: y, child: Text("$y年"))).toList(),
+                            onChanged: (v) { if (v != null) setState(() { _syncYear = v; }); },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 75,
+                          child: DropdownButtonFormField<int>(
+                            value: _syncMonth,
+                            decoration: const InputDecoration(labelText: "月", contentPadding: EdgeInsets.symmetric(vertical: 4)),
+                            style: const TextStyle(fontSize: 13, color: Colors.black87),
+                            items: List.generate(12, (i) => i + 1).map((m) => DropdownMenuItem(value: m, child: Text("$m月"))).toList(),
+                            onChanged: (v) {
+                              if (v != null) {
+                                setState(() {
+                                  _syncMonth = v;
+                                  if (_syncScope == "年単位") {
+                                    _syncScope = "月単位";
+                                    _pieScopeSelection = "月単位";
+                                  }
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 5),
+            _buildCalendarGrid(),
+          ],
+        );
+
+        // 【右カラム用コンテンツ】: カテゴリ割合（円グラフと凡例）
+        final Widget rightColumnContent = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("🍕 カテゴリ割合", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: ["週単位", "月単位", "年単位", "全期間"].map((pScope) {
+                return Row(
+                  children: [
+                    Radio<String>(
+                      value: pScope, 
+                      groupValue: _pieScopeSelection, 
+                      activeColor: Colors.teal,
+                      onChanged: (v) { 
+                        if (v != null) {
+                          setState(() { 
+                            _pieScopeSelection = v; 
+                            if (v == "週単位") {
+                              _syncScope = "週単位";
+                              if (_syncWeek == 0) {
+                                _syncWeek = _getWeekNumber(DateTime(_syncYear, _syncMonth, 1));
+                              }
+                            } else if (v == "月単位") {
+                              _syncScope = "月単位";
+                            } else if (v == "年単位") {
+                              _syncScope = "年単位";
+                            } else if (v == "全期間") {
+                              _syncScope = "全期間"; 
+                            }
+                          }); 
+                        }
+                      },
+                    ),
+                    Text(pScope, style: const TextStyle(fontSize: 12)),
+                  ],
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 15),
+            
+            Builder(
+              builder: (context) {
+                List<dynamic> targetExpensesForPie = [];
+
+                if (_pieScopeSelection == "週単位") {
+                  targetExpensesForPie = widget.allExpenses.where((e) {
+                    if (e.date.length < 10) return false;
+                    final date = DateTime.tryParse(e.date);
+                    if (date == null) return false;
+                    return date.year == _syncYear && date.month == _syncMonth && _getWeekNumber(date) == _syncWeek;
+                  }).toList();
+                } else if (_pieScopeSelection == "月単位") {
+                  targetExpensesForPie = widget.allExpenses.where((e) {
+                    return e.date.startsWith("$_syncYear-${_syncMonth.toString().padLeft(2, '0')}");
+                  }).toList();
+                } else if (_pieScopeSelection == "年単位") {
+                  targetExpensesForPie = widget.allExpenses.where((e) {
+                    return e.date.startsWith("$_syncYear-");
+                  }).toList();
+                } else if (_pieScopeSelection == "全期間") {
+                  targetExpensesForPie = widget.allExpenses;
+                }
+
+                Map<String, int> activeCategorySums = {};
+                int pieTotalAmount = 0;
+
+                for (var e in targetExpensesForPie) {
+                  final amountInt = (e.amount as num).toInt(); 
+                  activeCategorySums[e.category] = (activeCategorySums[e.category] ?? 0) + amountInt;
+                  pieTotalAmount += amountInt;
+                }
+
+                final double denominator = pieTotalAmount == 0 ? 1.0 : pieTotalAmount.toDouble();
+
+                if (activeCategorySums.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32.0),
+                      child: Text("指定期間のグラフデータがありません。"),
+                    ),
+                  );
+                }
+
+                return Column(
+                  children: [
+                    SizedBox(
+                      height: 220,
+                      child: PieChart(
+                        PieChartData(
+                          sectionsSpace: 2,
+                          centerSpaceRadius: 40,
+                          sections: activeCategorySums.entries.map((entry) {
+                            return PieChartSectionData(
+                              color: widget.categoryColorMap[entry.key] ?? Colors.grey,
+                              value: entry.value.toDouble(),
+                              title: '${(entry.value / denominator * 100).toStringAsFixed(1)}%',
+                              radius: 50,
+                              titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    Wrap(
+                      spacing: 8, runSpacing: 4,
+                      children: activeCategorySums.entries.map((entry) {
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(width: 12, height: 12, color: widget.categoryColorMap[entry.key]),
+                            const SizedBox(width: 4),
+                            Text("${entry.key}: ${NumberFormat('#,###').format(entry.value)}円", style: const TextStyle(fontSize: 11)),
+                          ],
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        );
+
+        // 【最終出力】: 画面幅に応じてRowかColumnかを出し分ける。PC表示時は最大横幅を1200pxに制限。
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              child: isWideScreen
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 6, // 左側コンテンツに横幅の60%を割り当て
+                          child: leftColumnContent,
+                        ),
+                        const SizedBox(width: 24), // カラム間のマージン
+                        Expanded(
+                          flex: 4, // 右側コンテンツに横幅の40%を割り当て
+                          child: rightColumnContent,
+                        ),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        leftColumnContent,
+                        const SizedBox(height: 35), // 縦並びの時のマージン
+                        rightColumnContent,
+                      ],
+                    ),
+            ),
           ),
-          // --- ここまで：集計ロジックとグラフ描画の挿入 ---
-          const SizedBox(height: 20),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1218,11 +1216,7 @@ Card(
 
   Widget _buildCalendarGrid() {
     final daysInMonth = _getDaysInMonth(_syncYear, _syncMonth);
-    
-    // 1日の曜日を取得 (1: 月曜日, ..., 6: 土曜日, 7: 日曜日)
     final firstDayWeekday = DateTime(_syncYear, _syncMonth, 1).weekday;
-    
-    // 日曜日始まりのグリッドにするためのオフセット計算
     final firstDayOffset = firstDayWeekday == 7 ? 0 : firstDayWeekday;
     
     List<Widget> dayCells = [];
@@ -1236,9 +1230,7 @@ Card(
         child: Text(w, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: w == "日" ? Colors.red : (w == "土" ? Colors.blue : Colors.black))),
       ));
     }
-  
 
-    // 1日の曜日より前の空白マスを生成
     for (int i = 0; i < firstDayOffset; i++) {
       dayCells.add(Container(
         decoration: BoxDecoration(
@@ -1248,7 +1240,6 @@ Card(
       ));
     }
 
-    // 各日付マスの生成
     for (int day = 1; day <= daysInMonth; day++) {
       String dateStr = "$_syncYear-${_syncMonth.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}";
       
@@ -1262,14 +1253,11 @@ Card(
       
       DateTime currentCellDate = DateTime(_syncYear, _syncMonth, day);
       bool isHighlighted = (_syncScope == "週単位" && _getWeekNumber(currentCellDate) == _syncWeek);
-      
-      // カテゴリの種類が3つ以上あるか判定
       bool isOverflow = catSum.keys.length >= 3;
 
       dayCells.add(
         GestureDetector(
           onTap: () {
-            // 3つ以上の場合は、まず内訳ダイアログを表示
             if (isOverflow) {
               showDialog(
                 context: context,
@@ -1321,7 +1309,6 @@ Card(
               );
             }
 
-            // 週単位の集計への切り替え連動
             setState(() {
               _syncScope = "週単位";
               _syncWeek = _getWeekNumber(currentCellDate);
@@ -1330,7 +1317,6 @@ Card(
           },
           child: Container(
             decoration: BoxDecoration(
-              // 3つ以上の場合は薄紫 (0xFFE8E5F5) を優先、それ以外は浅緑ハイライト
               color: isOverflow 
                   ? const Color(0xFFE8E5F5) 
                   : (isHighlighted ? const Color(0xFFE2F0D9) : Colors.white),
@@ -1382,11 +1368,9 @@ Card(
             ),
           ),
         ),
-      ); // ← dayCells.add の正しい閉じカッコ
+      );
     }
 
-    
-    // グリッドを綺麗な長方形（7の倍数のマス数）にするための末尾の空白マス埋め
     final totalCells = dayCells.length - 7;
     final remainingCells = (7 - (totalCells % 7)) % 7;
     for (int i = 0; i < remainingCells; i++) {
@@ -1406,5 +1390,5 @@ Card(
         children: dayCells,
       ),
     );
-  } 
-  }// ★ここ！この「}」が実際にご自身のコード（エディタ上）に存在するか確認してください
+  }
+}
