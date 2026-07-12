@@ -283,7 +283,7 @@ final String _apiKey = const String.fromEnvironment('GEMINI_API_KEY');
 
     try {
       final model = GenerativeModel(
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.0-flash',
         apiKey: _apiKey,
         generationConfig: GenerationConfig(
           responseMimeType: 'application/json',
