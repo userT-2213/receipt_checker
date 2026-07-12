@@ -11,7 +11,7 @@ class ReceiptOcrService {
   Future<Map<String, dynamic>> analyzeReceipt(Uint8List imageBytes, List<String> availableCategories) async {
     // 無料枠の制限が緩く、安定して動きやすいモデルに変更
     final model = GenerativeModel(
-      model: 'gemini-1.5-flash-8b',
+      model: 'gemini-3.5-flash',
       apiKey: _apiKey,
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
