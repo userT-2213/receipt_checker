@@ -369,20 +369,34 @@ class _InputTabState extends State<InputTab> {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    final picked = await _picker.pickImage(source: ImageSource.camera);
-                    if (picked != null) {
-                      final bytes = await picked.readAsBytes();
-                      setState(() { _webImageBytes = bytes; });
-                      _processReceipt(bytes);
-                    }
-                  },
-                  icon: const Icon(Icons.camera_alt),
-                  label: const Text("カメラで撮影"),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
-                ),
-              ),
+  child: ElevatedButton.icon(
+    onPressed: () async {
+      try {
+        // preferredCameraDevice を指定し、スマホの標準カメラの挙動を安定させます
+        final picked = await _picker.pickImage(
+          source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.rear, // 背面カメラを明示
+        );
+        if (picked != null) {
+          final bytes = await picked.readAsBytes();
+          setState(() { _webImageBytes = bytes; });
+          _processReceipt(bytes);
+        }
+      } catch (e) {
+        debugPrint("カメラ起動エラー: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('カメラを起動できませんでした。権限の設定を確認してください。: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    },
+    icon: const Icon(Icons.camera_alt),
+    label: const Text("カメラで撮影"),
+    style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
+  ),
+),
             ],
           ),
           if (_isProcessing) ...[
