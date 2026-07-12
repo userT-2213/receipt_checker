@@ -1,17 +1,14 @@
 import 'dart:convert';
-import 'dart:async'; // Completer用
-import 'package:flutter/foundation.dart'; // kIsWebの判定用
+import 'dart:async'; 
+import 'package:flutter/foundation.dart'; 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 
-
-// ★これに差し替え：Webの時だけ実際の処理を、それ以外はスタブを読み込む
-import 'web_ocr_stub.dart' if (dart.library.js) 'web_ocr.dart' as web_ocr;
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const SmartReceiptCheckerApp());
@@ -28,7 +25,6 @@ class SmartReceiptCheckerApp extends StatelessWidget {
         primarySwatch: Colors.teal,
         scaffoldBackgroundColor: const Color(0xFFF0F2F6),
       ),
-      // --- 日本語化のための設定を追加 ---
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -37,7 +33,6 @@ class SmartReceiptCheckerApp extends StatelessWidget {
       supportedLocales: const [
         Locale('ja', 'JP'),
       ],
-      // --------------------------------
       home: const MainTabScreen(),
       locale: const Locale('ja', 'JP'),
     );
@@ -76,7 +71,7 @@ class ExpenseData {
   }
 }
 
-// --- Web/モバイル両対応ストレージマネージャー（SharedPreferencesへ移行） ---
+// --- Web/モバイル両対応ストレージマネージャー ---
 
 class LocalDataManager {
   static const String _storageKey = 'expenses_data_list';
@@ -209,7 +204,6 @@ class _MainTabScreenState extends State<MainTabScreen> with SingleTickerProvider
   }
 }
 
-
 // ==========================================
 // タブ1: レシート登録・入力
 // ==========================================
@@ -234,7 +228,7 @@ class InputTab extends StatefulWidget {
 }
 
 class _InputTabState extends State<InputTab> {
-  Uint8List? _webImageBytes; // Web/モバイル共通のプレビュー対応用バイトデータ
+  Uint8List? _webImageBytes; 
   final _picker = ImagePicker();
   bool _isProcessing = false;
 
@@ -250,13 +244,15 @@ class _InputTabState extends State<InputTab> {
   bool _deleteMode = false;
   final List<int> _selectedIndicesForDelete = [];
 
+  // ここにコピーした文字列を貼り付ける
+final String _apiKey = const String.fromEnvironment('GEMINI_API_KEY');
+
   @override
   void initState() {
     super.initState();
     _dateController.text = DateFormat('yyyy-MM-dd').format(DateTime.now());
   }
 
-  // カレンダー表示処理の実装
   Future<void> _selectDate(BuildContext context) async {
     DateTime initialDate = DateTime.tryParse(_dateController.text) ?? DateTime.now();
     final DateTime? picked = await showDatePicker(
@@ -272,161 +268,67 @@ class _InputTabState extends State<InputTab> {
     }
   }
 
- Future<void> _processReceipt(XFile pickedFile) async {
+  /// Geminiを用いた高精度レシート構造化OCR解析
+  Future<void> _processReceipt(Uint8List imageBytes) async {
+    if (_apiKey == 'YOUR_GEMINI_API_KEY' || _apiKey.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('APIキーが設定されていません。コード内の _apiKey を書き換えてください。'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
     setState(() {
       _isProcessing = true;
     });
 
-    String detectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    String detectedShop = "";
-    int detectedPrice = 0;
-    List<String> detectedItems = [];
-    List<String> textLines = [];
-
     try {
-      if (kIsWeb) {
-        final rawResponse = await web_ocr.runTesseractWeb(pickedFile);
-        if (rawResponse.startsWith('JS_ERROR') || rawResponse.startsWith('DART_ERROR')) {
-          throw Exception(rawResponse);
-        }
-        textLines = rawResponse
-            .split('[LINE]')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList();
-      } else {
-        final inputImage = InputImage.fromFilePath(pickedFile.path);
-        final textRecognizer = TextRecognizer(script: TextRecognitionScript.japanese);
-        try {
-          final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
-          
-          // 【修正】blocksではなく、各ブロックの中にある「lines（横一行）」をすべて平坦に取り出す
-          List<String> extractedLines = [];
-          for (var block in recognizedText.blocks) {
-            for (var line in block.lines) {
-              if (line.text.trim().isNotEmpty) {
-                extractedLines.add(line.text.trim());
-              }
-            }
-          }
-          textLines = extractedLines;
-          
-        } finally {
-          textRecognizer.close();
-        }
+      final model = GenerativeModel(
+        model: 'gemini-1.5-flash',
+        apiKey: _apiKey,
+        generationConfig: GenerationConfig(
+          responseMimeType: 'application/json',
+          responseSchema: Schema.object(
+            properties: {
+              'date': Schema.string(description: 'レシート記載の決済日付(YYYY-MM-DD)。不明時は今日の年月日。'),
+              'storeName': Schema.string(description: '店舗名（例: セブン-イレブン、イオンなど）。住所や電話番号は省く。'),
+              'items': Schema.array(items: Schema.string(description: '購入した商品名・サービス名のリスト。')),
+              'amount': Schema.integer(description: '最終的な支払合計金額（税込）。数値のみ。'),
+              'category': Schema.string(description: '推測される家計簿カテゴリ（食費、日用品、交通費、交際費、娯楽・趣味、教育、水道・光熱費、家賃、保険、通信費、美容・衣服、医療・健康、その他 から選択）'),
+            },
+          ),
+        ),
+      );
+
+      final prompt = TextPart(
+        'このレシート画像から「取引日付」「正確な店名」「購入したすべての商品名のリスト」「税込合計金額」「一番適した家計簿カテゴリ」を抽出してください。'
+      );
+      final imagePart = DataPart('image/png', imageBytes);
+
+      final response = await model.generateContent([
+        Content.multi([prompt, imagePart])
+      ]);
+
+      final jsonText = response.text;
+      if (jsonText == null || jsonText.isEmpty) {
+        throw Exception('AIからの解析結果が空でした。');
       }
 
-      // --- 1. 店名の抽出 ---
-      String baseShopName = "";
-      String branchName = "";
-      int checkLimit = textLines.length > 7 ? 7 : textLines.length;
-      
-      for (int i = 0; i < checkLimit; i++) {
-        String textClean = textLines[i].replaceAll(RegExp(r'\s+'), '');
-        if (textClean.length <= 1) continue;
-        if (RegExp(r'\d{4}[年\-/]|\d{1,2}[月\-/]').hasMatch(textClean)) continue;
-        if (RegExp(r'TEL|tel|0\d{1,4}-\d{1,4}-\d{3,4}').hasMatch(textClean)) continue;
-        if (RegExp(r'領収|レシート|登録|番号').hasMatch(textClean)) continue;
-        if (RegExp(r'[xXメ*✕×]\d+|\d+円|[￥\\¥]').hasMatch(textClean)) continue;
+      final Map<String, dynamic> result = jsonDecode(jsonText);
 
-        textClean = textClean.replaceAll("ナインイレナン", "ナインイレブン").replaceAll("ナインイレプン", "ナインイレブン").replaceAll("ナインイレプブン", "ナインイレブン");
-        baseShopName = textClean;
-
-        if (textClean.contains("店") && textClean.length > 3) {
-          break;
-        } else if (i + 1 < textLines.length) {
-          String nextText = textLines[i + 1].replaceAll(RegExp(r'\s+'), '');
-          if (nextText.contains("店") && !RegExp(r'\d+円|TEL').hasMatch(nextText)) {
-            branchName = nextText;
-          }
-          break;
-        }
-      }
-
-      if (baseShopName.isNotEmpty) {
-        detectedShop = branchName.isNotEmpty && !baseShopName.contains(branchName)
-            ? "$baseShopName$branchName"
-            : baseShopName;
-      }
-
-     // --- 2. 品名・日付・金額の抽出 ---
-      for (int i = 0; i < textLines.length; i++) {
-        String originalLine = textLines[i];
-        String cleanLine = originalLine.replaceAll(RegExp(r'\s+'), '');
-
-        // 日付の抽出
-        var dateMatch = RegExp(r'(\d{4})\s*[年\-/]\s*(\d{1,2})\s*[月\-/]\s*(\d{1,2})').firstMatch(originalLine);
-        if (dateMatch != null) {
-          int year = int.parse(dateMatch.group(1)!);
-          int month = int.parse(dateMatch.group(2)!);
-          int day = int.parse(dateMatch.group(3)!);
-          detectedDate = "$year-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}";
-          continue;
-        }
-
-        // 合計金額の抽出
-        if (cleanLine.contains("計") || cleanLine.contains("合")) {
-          var numbers = RegExp(r'\d+').allMatches(cleanLine).map((m) => m.group(0)!).toList();
-          if (numbers.isNotEmpty) {
-            detectedPrice = int.tryParse(numbers.last) ?? detectedPrice;
-          }
-          continue;
-        }
-
-        // 【強化】除外キーワードの判定（スマホの誤認識「務り」「お務」「預」などのブレに対応）
-        bool isExcludeKeyword = RegExp(r'計|釣|税|小計|割引|値引|領収|TEL|号|責|登録|単価|現|金|クレジット|会員|スキャン|預り|預リ|お預|お釣|務り|務リ|ナインイレ|千葉県|船橋市').hasMatch(cleanLine);
-        bool isDateTimeOrPhone = RegExp(r'\d{2}:\d{2}|0\d{1,4}-\d{1,4}-\d{3,4}|\d{4}年').hasMatch(cleanLine);
-
-        if (!isExcludeKeyword && !isDateTimeOrPhone) {
-          String candidate = originalLine;
-
-          // 数量や金額部分を前方一致でカット（スマホの誤認識対策）
-          // カタカナの「メ」は単体かつ後ろに数字が続く場合のみ数量の「×」とみなすように修正
-          var itemMatch = RegExp(r'(.+?)(?=[xX✕×*]\d|メ\d|[\d,]+円|[￥\\¥])').firstMatch(originalLine);
-          if (itemMatch != null) {
-            candidate = itemMatch.group(1)!.trim();
-          }
-
-          // 末尾に残ったノイズ（数字や記号）をトリミング
-          candidate = candidate.replaceAll(RegExp(r'[\s_。、\.・=+\-xX✕×\d]+$'), '').trim();
-
-          // 抽出した店名自体、または店名に含まれる文字列も完全に除外
-          bool isShopName = detectedShop.isNotEmpty && (detectedShop.contains(candidate) || candidate.contains(detectedShop));
-
-          // 2文字以上かつ、店名関連や「お釣り」等の残骸でなければ商品名として追加
-          if (candidate.length >= 2 && !isShopName && !candidate.contains("店") && !RegExp(r'^[おオ]?[預釣務]').hasMatch(candidate)) {
-            detectedItems.add(candidate);
-          }
-        }
-      }
-
-      if (detectedPrice == 0) {
-        for (var line in textLines) {
-          if (line.contains("合計") || line.contains("小計")) {
-            String numOnly = line.replaceAll(RegExp(r'[^\d]'), '');
-            if (numOnly.isNotEmpty) {
-              detectedPrice = int.tryParse(numOnly) ?? detectedPrice;
-              break;
-            }
-          }
-        }
-      }
-
-      if (detectedShop.isEmpty && textLines.isNotEmpty) {
-        detectedShop = textLines.first.replaceAll(RegExp(r'\s+'), '');
-      }
-
-      // 各フォームに入力値をセット
       setState(() {
-        _dateController.text = detectedDate;
-        _storeController.text = detectedShop.isEmpty ? "ナインイレブン日大前店" : detectedShop;
-        _amountController.text = detectedPrice == 0 ? "" : detectedPrice.toString();
-        _selectedCategory = "食費";
+        _dateController.text = result['date'] ?? DateFormat('yyyy-MM-dd').format(DateTime.now());
+        _storeController.text = result['storeName'] ?? '';
+        _amountController.text = (result['amount'] ?? '').toString();
         
-        if (detectedItems.isNotEmpty) {
-          _itemController.text = detectedItems.join("\n");
+        final List<dynamic> itemsList = result['items'] ?? [];
+        _itemController.text = itemsList.isNotEmpty ? itemsList.join('\n') : '商品名を検出できませんでした';
+
+        // カテゴリの一致確認と反映
+        String cat = result['category'] ?? 'その他';
+        if (widget.categories.contains(cat)) {
+          _selectedCategory = cat;
         } else {
-          _itemController.text = "商品名を検出できませんでした";
+          _selectedCategory = 'その他';
         }
       });
 
@@ -481,7 +383,7 @@ class _InputTabState extends State<InputTab> {
                     if (picked != null) {
                       final bytes = await picked.readAsBytes();
                       setState(() { _webImageBytes = bytes; });
-                      _processReceipt(picked);
+                      _processReceipt(bytes);
                     }
                   },
                   icon: const Icon(Icons.photo_library),
@@ -497,7 +399,7 @@ class _InputTabState extends State<InputTab> {
                     if (picked != null) {
                       final bytes = await picked.readAsBytes();
                       setState(() { _webImageBytes = bytes; });
-                      _processReceipt(picked);
+                      _processReceipt(bytes);
                     }
                   },
                   icon: const Icon(Icons.camera_alt),
@@ -536,7 +438,7 @@ class _InputTabState extends State<InputTab> {
                   children: [
                     TextFormField(
                       controller: _dateController,
-                      readOnly: true, // 手入力を防ぎタップ選択に強制
+                      readOnly: true, 
                       onTap: () => _selectDate(context),
                       decoration: const InputDecoration(labelText: "日付 (YYYY-MM-DD)", suffixIcon: Icon(Icons.calendar_today)),
                       validator: (v) => (v == null || v.isEmpty) ? "日付を入力してください" : null,
@@ -588,7 +490,7 @@ class _InputTabState extends State<InputTab> {
                               _itemController.clear();
                               _amountController.clear();
                               setState(() { _webImageBytes = null; });
-                              widget.onDataChanged(); // 親のリスト状態を更新
+                              widget.onDataChanged(); 
                             }
                           }
                         },
@@ -735,14 +637,9 @@ class _DashboardTabState extends State<DashboardTab> {
     _syncWeek = _getWeekNumber(DateTime.now());
   }
 
-int _getWeekNumber(DateTime dt) {
-    // その月の1日を取得
+  int _getWeekNumber(DateTime dt) {
     final firstDayOfMonth = DateTime(dt.year, dt.month, 1);
-    
-    // 1日の曜日 (1:月, ..., 6:土, 7:日) を日曜日始まり(0)〜土曜日(6)のオフセットに変換
     final firstDayOffset = firstDayOfMonth.weekday == 7 ? 0 : firstDayOfMonth.weekday;
-    
-    // (日付 + 1日のオフセット - 1) を 7 で割ることで、カレンダー上の行数（第何週）を算出
     return ((dt.day + firstDayOffset - 1) / 7).floor() + 1;
   }
 
@@ -750,11 +647,8 @@ int _getWeekNumber(DateTime dt) {
     return DateTime(year, month + 1, 0).day;
   }
 
-  // 選択された月が最大で第何週まであるかを計算する
   int _getMaxWeeksInMonth(int year, int month) {
-    // その月の最終日（例: 31日）を取得
     final lastDayOfMonth = DateTime(year, month + 1, 0);
-    // 最終日が第何週に属するかをそのまま最大週数とする
     return _getWeekNumber(lastDayOfMonth);
   }
 
@@ -787,20 +681,6 @@ int _getWeekNumber(DateTime dt) {
 
     int calculatedAverage = periodDays > 0 ? (selectedPeriodAmount / periodDays).round() : 0;
 
-    List<ExpenseData> pieFilteredExpenses = widget.allExpenses.where((item) {
-      DateTime? dt = DateTime.tryParse(item.date);
-      if (dt == null) return false;
-      if (_pieScopeSelection == "全期間") return true;
-      if (dt.year != _syncYear) return false;
-      if (_pieScopeSelection == "年単位") return true;
-      return dt.month == _syncMonth;
-    }).toList();
-
-    Map<String, int> categorySums = {};
-    for (var item in pieFilteredExpenses) {
-      categorySums[item.category] = (categorySums[item.category] ?? 0) + item.amount;
-    }
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -809,12 +689,11 @@ int _getWeekNumber(DateTime dt) {
           const Text("📊 期間別集計データ", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
           const SizedBox(height: 10),
           
-Card(
+          Card(
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
                 children: [
-                  // 1行目: ラジオボタン（画面からはみ出さないよう横スクロール可能に）
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -844,7 +723,6 @@ Card(
                   ),
                   const SizedBox(height: 8),
 
-                  // 2行目: 重複を削除し、「年・月・週」が1つずつ綺麗に並ぶドロップダウン
                   Row(
                     children: [
                       Expanded(
@@ -889,7 +767,6 @@ Card(
           ),
           const SizedBox(height: 15),
 
-        // --- ここから：Builderで包んだ比較・集計とGridViewのブロック ---
           Builder(
             builder: (context) {
               int previousPeriodAmount = 0;
@@ -932,7 +809,6 @@ Card(
                 for (var e in prevExpenses) { previousPeriodAmount += (e.amount as num).toInt(); }
               }
 
-             // 差額と％の計算（金額・％の順に修正）
               int diffAmount = selectedPeriodAmount - previousPeriodAmount;
               String compareValueText = "";
               
@@ -956,14 +832,11 @@ Card(
                   percentText = "0.0%";
                   diffText = "0円";
                 }
-                
-                // 金額を先、％をカッコ内に配置
                 compareValueText = "$diffText ($percentText)";
               }
 
               String compareTitle = "⚖️ 前期比 (${_syncScope == '週単位' ? '先週' : _syncScope == '月単位' ? '先月' : '前年'}比)";
 
-              // 画面に表示する GridView を return で返す
               return GridView.count(
                 crossAxisCount: 2,
                 shrinkWrap: true,
@@ -992,10 +865,8 @@ Card(
               );
             },
           ),
-          // --- ここまで：BuilderとGridViewのブロック ---
           const SizedBox(height: 25),
 
-          // --- カレンダーのヘッダーとプルダウン部分 ---
           Card(
             elevation: 0,
             color: Colors.teal.withOpacity(0.05),
@@ -1064,14 +935,13 @@ Card(
             ),
           ),
           const SizedBox(height: 5),
-          _buildCalendarGrid(), // カレンダー本体の呼び出し
+          _buildCalendarGrid(), 
           const SizedBox(height: 25),
 
-         const Text("🍕 カテゴリ割合", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
+          const Text("🍕 カテゴリ割合", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            // 「週単位」をリストの先頭に追加
             children: ["週単位", "月単位", "年単位", "全期間"].map((pScope) {
               return Row(
                 children: [
@@ -1083,22 +953,13 @@ Card(
                       if (v != null) {
                         setState(() { 
                           _pieScopeSelection = v; 
-                          
-                          // --- 期間別集計・支出合計との連動処理 ---
                           if (v == "週単位") {
                             _syncScope = "週単位";
-                            // もし現在 _syncWeek が未設定（0など）の場合は、現在のターゲット日の週番号を入れるロジックを挟むと安全です
-                            if (_syncWeek == 0) {
-                              _syncWeek = _getWeekNumber(DateTime(_syncYear, _syncMonth, 1));
-                            }
                           } else if (v == "月単位") {
                             _syncScope = "月単位";
                           } else if (v == "年単位") {
                             _syncScope = "年単位";
-                          } else if (v == "全期間") {
-                            _syncScope = "全期間"; // 上部の稼働範囲タイプも全期間に対応させる場合
                           }
-                          // ------------------------------------
                         }); 
                       }
                     },
@@ -1109,7 +970,6 @@ Card(
             }).toList(),
           ),
           const SizedBox(height: 15),
-         // --- ここから：選択期間に応じたデータの再抽出と集計ロジックを挿入 ---
           Builder(
             builder: (context) {
               List<dynamic> targetExpensesForPie = [];
@@ -1133,11 +993,10 @@ Card(
                 targetExpensesForPie = widget.allExpenses;
               }
 
-             Map<String, int> activeCategorySums = {};
+              Map<String, int> activeCategorySums = {};
               int pieTotalAmount = 0;
 
               for (var e in targetExpensesForPie) {
-                // e.amount を .toInt() で整数にキャストして型を合わせます
                 final amountInt = (e.amount as num).toInt(); 
                 activeCategorySums[e.category] = (activeCategorySums[e.category] ?? 0) + amountInt;
                 pieTotalAmount += amountInt;
@@ -1145,7 +1004,6 @@ Card(
 
               final double denominator = pieTotalAmount == 0 ? 1.0 : pieTotalAmount.toDouble();
 
-              // 抽出したデータが空ならメッセージを表示
               if (activeCategorySums.isEmpty) {
                 return const Center(child: Padding(
                   padding: EdgeInsets.symmetric(vertical: 32.0),
@@ -1153,7 +1011,6 @@ Card(
                 ));
               }
 
-              // データがある場合は円グラフと凡例を描画
               return Column(
                 children: [
                   SizedBox(
@@ -1192,7 +1049,6 @@ Card(
               );
             },
           ),
-          // --- ここまで：集計ロジックとグラフ描画の挿入 ---
           const SizedBox(height: 20),
         ],
       ),
@@ -1219,11 +1075,7 @@ Card(
 
   Widget _buildCalendarGrid() {
     final daysInMonth = _getDaysInMonth(_syncYear, _syncMonth);
-    
-    // 1日の曜日を取得 (1: 月曜日, ..., 6: 土曜日, 7: 日曜日)
     final firstDayWeekday = DateTime(_syncYear, _syncMonth, 1).weekday;
-    
-    // 日曜日始まりのグリッドにするためのオフセット計算
     final firstDayOffset = firstDayWeekday == 7 ? 0 : firstDayWeekday;
     
     List<Widget> dayCells = [];
@@ -1238,8 +1090,6 @@ Card(
       ));
     }
   
-
-    // 1日の曜日より前の空白マスを生成
     for (int i = 0; i < firstDayOffset; i++) {
       dayCells.add(Container(
         decoration: BoxDecoration(
@@ -1249,7 +1099,6 @@ Card(
       ));
     }
 
-    // 各日付マスの生成
     for (int day = 1; day <= daysInMonth; day++) {
       String dateStr = "$_syncYear-${_syncMonth.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}";
       
@@ -1263,14 +1112,11 @@ Card(
       
       DateTime currentCellDate = DateTime(_syncYear, _syncMonth, day);
       bool isHighlighted = (_syncScope == "週単位" && _getWeekNumber(currentCellDate) == _syncWeek);
-      
-      // カテゴリの種類が3つ以上あるか判定
       bool isOverflow = catSum.keys.length >= 3;
 
       dayCells.add(
         GestureDetector(
           onTap: () {
-            // 3つ以上の場合は、まず内訳ダイアログを表示
             if (isOverflow) {
               showDialog(
                 context: context,
@@ -1322,7 +1168,6 @@ Card(
               );
             }
 
-            // 週単位の集計への切り替え連動
             setState(() {
               _syncScope = "週単位";
               _syncWeek = _getWeekNumber(currentCellDate);
@@ -1331,7 +1176,6 @@ Card(
           },
           child: Container(
             decoration: BoxDecoration(
-              // 3つ以上の場合は薄紫 (0xFFE8E5F5) を優先、それ以外は浅緑ハイライト
               color: isOverflow 
                   ? const Color(0xFFE8E5F5) 
                   : (isHighlighted ? const Color(0xFFE2F0D9) : Colors.white),
@@ -1383,11 +1227,9 @@ Card(
             ),
           ),
         ),
-      ); // ← dayCells.add の正しい閉じカッコ
+      ); 
     }
 
-    
-    // グリッドを綺麗な長方形（7の倍数のマス数）にするための末尾の空白マス埋め
     final totalCells = dayCells.length - 7;
     final remainingCells = (7 - (totalCells % 7)) % 7;
     for (int i = 0; i < remainingCells; i++) {
@@ -1408,4 +1250,4 @@ Card(
       ),
     );
   } 
-  }// ★ここ！この「}」が実際にご自身のコード（エディタ上）に存在するか確認してください
+}

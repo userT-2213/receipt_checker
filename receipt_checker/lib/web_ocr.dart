@@ -1,52 +1,62 @@
-import 'dart:async';
 import 'dart:convert';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:js' as js;
-import 'package:image_picker/image_picker.dart';
+import 'dart:typed_data';
+import 'package:google_generative_ai/google_generative_ai.dart';
 
-Future<String> runTesseractWeb(XFile pickedFile) async {
-  try {
-    final bytes = await pickedFile.readAsBytes();
-    final base64Image = "data:image/jpeg;base64,${base64Encode(bytes)}";
-    final completer = Completer<String>();
-    
-    js.context['runTesseractCallback'] = js.allowInterop((String text) {
-      completer.complete(text);
-    });
+class ReceiptOcrService {
+  final String _apiKey;
 
-    js.context.callMethod('eval', [
-      """
-      (async () => {
-        try {
-          const worker = await Tesseract.createWorker('jpn');
-          
-          // 不具合の原因になりやすいホワイトリストは廃止し、自動判定モードに最適化
-          await worker.setParameters({
-            tessedit_pageseg_mode: '3', // 自動判定に戻して横並びの文字崩れを防止
-            preserve_interword_spaces: '1'
-          });
-          
-          const { data } = await worker.recognize('$base64Image');
-          await worker.terminate();
+  ReceiptOcrService(this._apiKey);
 
-          // 認識された各行のテキストを整形して結合
-          const lines = data.lines.map(l => {
-            let t = l.text.trim();
-            // 精度を低下させる細かなゴミ記号（. , _ ~ など）を最低限ブラウザ側で掃除
-            t = t.replace(/[.,_~^`']/g, '');
-            return t;
-          }).filter(t => t.length > 0);
-          
-          runTesseractCallback(lines.join('[LINE]'));
-        } catch (err) {
-          runTesseractCallback('JS_ERROR: ' + err.toString());
-        }
-      })();
-      """
-    ]);
+  /// レシートの画像バイトデータを基に、Geminiを用いて構造化データを抽出します
+  Future<Map<String, dynamic>> analyzeReceipt(Uint8List imageBytes) async {
+    // 2026年現在の最新の高速・高精度マルチモーダルモデルを使用
+    final model = GenerativeModel(
+      model: 'gemini-1.5-flash',
+      apiKey: _apiKey,
+      generationConfig: GenerationConfig(
+        responseMimeType: 'application/json',
+        responseSchema: Schema.object(
+          properties: {
+            'date': Schema.string(
+                description: 'レシートの取引日付。YYYY-MM-DD形式。不明な場合は本日の日付。'),
+            'storeName': Schema.string(
+                description: 'レシートを発行した店舗名（例: セブン-イレブン、BOOKOFFなど）。無駄な住所や電話番号は含めない。'),
+            'items': Schema.array(
+              items: Schema.string(description: '購入された個々の商品名やサービス名。'),
+            ),
+            'amount': Schema.integer(
+                description: '支払い合計金額（税込）。割引やポイント利用後の最終支払額、または「合計」「合計金額」と書かれた金額。数値のみ。'),
+            'category': Schema.string(
+                description: '購入内容から推測される適切な家計簿カテゴリ（例: 食費、日用品、娯楽費、通信費など）。'),
+          },
+        ),
+      ),
+    );
 
-    return await completer.future;
-  } catch (e) {
-    return "DART_ERROR: \$e";
+    final prompt = TextPart(
+      'このレシート画像から、「取引日付」「店名」「購入した商品名のリスト」「合計金額（税込）」「適切な家計簿カテゴリ」を抽出してください。\n'
+      '・店名はロゴやテキストから総合的に判断し、最も適切な名称を抽出してください。\n'
+      '・金額はお釣りや小計ではなく、最終的な「合計（TAX incl.）」の数字のみを抽出してください。\n'
+      '・商品名は改行区切りのテキストとして後で扱いやすいため、リスト形式で漏れなく抽出してください。'
+    );
+
+    final imagePart = DataPart('image/png', imageBytes);
+
+    try {
+      final response = await model.generateContent([
+        Content.multi([prompt, imagePart])
+      ]);
+
+      final jsonText = response.text;
+      if (jsonText == null || jsonText.isEmpty) {
+        throw Exception('Geminiからの応答が空でした。');
+      }
+
+      // JSON文字列をパースしてMapとして返却
+      return jsonDecode(jsonText) as Map<String, dynamic>;
+    } catch (e) {
+      print('OCR解析エラー: $e');
+      rethrow;
+    }
   }
 }
