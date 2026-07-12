@@ -5,17 +5,32 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'
-      - run: flutter pub get
-      - run: flutter build web --release --base-href "/receipt_checker/" --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-      - uses: peaceiris/actions-gh-pages@v3
+          channel: 'stable'
+
+      - name: Install dependencies
+        working-directory: receipt_checker
+        run: flutter pub get
+
+      - name: Build Web app
+        working-directory: receipt_checker
+        run: flutter build web --release --base-href "/receipt_checker/" --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build/web
+          publish_dir: ./receipt_checker/build/web
