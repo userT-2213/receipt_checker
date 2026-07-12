@@ -7,7 +7,8 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
+// web_ocr.dart のクラスを使用するためインポートを追加
+import 'web_ocr.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,7 +40,7 @@ class SmartReceiptCheckerApp extends StatelessWidget {
   }
 }
 
-// --- モデル & データ構造の定義 ---
+// --- モデル & データ構造의 定義 ---
 
 class ExpenseData {
   String date; // YYYY-MM-DD
@@ -244,8 +245,7 @@ class _InputTabState extends State<InputTab> {
   bool _deleteMode = false;
   final List<int> _selectedIndicesForDelete = [];
 
-  // ここにコピーした文字列を貼り付ける
-final String _apiKey = const String.fromEnvironment('GEMINI_API_KEY');
+  final String _apiKey = const String.fromEnvironment('GEMINI_API_KEY');
 
   @override
   void initState() {
@@ -268,7 +268,7 @@ final String _apiKey = const String.fromEnvironment('GEMINI_API_KEY');
     }
   }
 
-  /// Geminiを用いた高精度レシート構造化OCR解析
+  /// web_ocr.dart の ReceiptOcrService を呼び出してレシート構造化OCR解析を行います
   Future<void> _processReceipt(Uint8List imageBytes) async {
     if (_apiKey == 'YOUR_GEMINI_API_KEY' || _apiKey.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -282,38 +282,9 @@ final String _apiKey = const String.fromEnvironment('GEMINI_API_KEY');
     });
 
     try {
-      final model = GenerativeModel(
-        model: 'gemini-2.0-flash',
-        apiKey: _apiKey,
-        generationConfig: GenerationConfig(
-          responseMimeType: 'application/json',
-          responseSchema: Schema.object(
-            properties: {
-              'date': Schema.string(description: 'レシート記載の決済日付(YYYY-MM-DD)。不明時は今日の年月日。'),
-              'storeName': Schema.string(description: '店舗名（例: セブン-イレブン、イオンなど）。住所や電話番号は省く。'),
-              'items': Schema.array(items: Schema.string(description: '購入した商品名・サービス名のリスト。')),
-              'amount': Schema.integer(description: '最終的な支払合計金額（税込）。数値のみ。'),
-              'category': Schema.string(description: '推測される家計簿カテゴリ（食費、日用品、交通費、交際費、娯楽・趣味、教育、水道・光熱費、家賃、保険、通信費、美容・衣服、医療・健康、その他 から選択）'),
-            },
-          ),
-        ),
-      );
-
-      final prompt = TextPart(
-        'このレシート画像から「取引日付」「正確な店名」「購入したすべての商品名のリスト」「税込合計金額」「一番適した家計簿カテゴリ」を抽出してください。'
-      );
-      final imagePart = DataPart('image/png', imageBytes);
-
-      final response = await model.generateContent([
-        Content.multi([prompt, imagePart])
-      ]);
-
-      final jsonText = response.text;
-      if (jsonText == null || jsonText.isEmpty) {
-        throw Exception('AIからの解析結果が空でした。');
-      }
-
-      final Map<String, dynamic> result = jsonDecode(jsonText);
+      // web_ocr.dart で作ったサービスを初期化して呼び出す
+      final ocrService = ReceiptOcrService(_apiKey);
+      final Map<String, dynamic> result = await ocrService.analyzeReceipt(imageBytes, widget.categories);
 
       setState(() {
         _dateController.text = result['date'] ?? DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -323,7 +294,7 @@ final String _apiKey = const String.fromEnvironment('GEMINI_API_KEY');
         final List<dynamic> itemsList = result['items'] ?? [];
         _itemController.text = itemsList.isNotEmpty ? itemsList.join('\n') : '商品名を検出できませんでした';
 
-        // カテゴリの一致確認と反映
+        // カテゴリの一致確認と安全な反映（バリデーション処理）
         String cat = result['category'] ?? 'その他';
         if (widget.categories.contains(cat)) {
           _selectedCategory = cat;
@@ -333,8 +304,13 @@ final String _apiKey = const String.fromEnvironment('GEMINI_API_KEY');
       });
 
     } catch (e) {
+      String errorMessage = e.toString();
+      if (errorMessage.contains('quota') || errorMessage.contains('429')) {
+        errorMessage = 'Gemini APIの無料利用枠の制限に達しました。1分ほど待ってからもう一度お試しいただくか、しばらく時間を置いてください。';
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('解析エラー: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('解析エラー: $errorMessage'), backgroundColor: Colors.red, duration: const Duration(seconds: 6)),
       );
     } finally {
       setState(() {
