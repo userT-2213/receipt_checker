@@ -11,7 +11,7 @@ class ReceiptOcrService {
   Future<Map<String, dynamic>> analyzeReceipt(Uint8List imageBytes) async {
     // 2026年現在の最新の高速・高精度マルチモーダルモデルを使用
     final model = GenerativeModel(
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.0-flash',
       apiKey: _apiKey,
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
